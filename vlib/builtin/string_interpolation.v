@@ -154,7 +154,7 @@ pub fn get_str_intp_u32_format(fmt_type StrIntpType, in_width int, in_precision 
 
 // convert from struct to formated string
 [manualfree]
-fn (data StrIntpData) get_fmt_format(mut sb strings.Builder) {
+fn (data Sid) get_fmt_format(mut sb strings.Builder) {
 	x := data.fmt
 	typ := StrIntpType(x & 0x1F)
 	allign := int((x >> 5) & 0x01)
@@ -618,7 +618,7 @@ pub:
 
 // NOTE: LOW LEVEL struct
 // storing struct passed to V in the C code
-pub struct StrIntpData {
+pub struct Sid {
 pub:
 	str string
 	// fmt     u64  // expanded version for future use, 64 bit
@@ -628,12 +628,12 @@ pub:
 
 // interpolation function
 [manualfree]
-pub fn str_intp(data_len int, in_data voidptr) string {
+pub fn s_i(data_len int, in_data voidptr) string {
 	mut res := strings.new_builder(256)
 	unsafe {
 		mut i := 0
 		for i < data_len {
-			data := &StrIntpData(&byte(in_data) + (int(sizeof(StrIntpData)) * i))
+			data := &Sid(&byte(in_data) + (int(sizeof(Sid)) * i))
 			// avoid empty strings
 			if data.str.len != 0 {
 				res.write_string(data.str)
@@ -666,22 +666,22 @@ pub const (
 
 [inline]
 pub fn str_intp_sq(in_str string) string {
-	return 'str_intp(2, _MOV((StrIntpData[]){{_SLIT("\'"), $si_s_code, {.d_s = $in_str}},{_SLIT("\'"), 0, {.d_c = 0 }}}))'
+	return 's_i(2, _MOV((Sid[]){{_SLIT("\'"), $si_s_code, {.d_s = $in_str}},{_SLIT("\'"), 0, {.d_c = 0 }}}))'
 }
 
 [inline]
 pub fn str_intp_rune(in_str string) string {
-	return 'str_intp(2, _MOV((StrIntpData[]){{_SLIT("\`"), $si_s_code, {.d_s = $in_str}},{_SLIT("\`"), 0, {.d_c = 0 }}}))'
+	return 's_i(2, _MOV((Sid[]){{_SLIT("\`"), $si_s_code, {.d_s = $in_str}},{_SLIT("\`"), 0, {.d_c = 0 }}}))'
 }
 
 [inline]
 pub fn str_intp_g32(in_str string) string {
-	return 'str_intp(1, _MOV((StrIntpData[]){{_SLIT0, $si_g32_code, {.d_f32 = $in_str }}}))'
+	return 's_i(1, _MOV((Sid[]){{_SLIT0, $si_g32_code, {.d_f32 = $in_str }}}))'
 }
 
 [inline]
 pub fn str_intp_g64(in_str string) string {
-	return 'str_intp(1, _MOV((StrIntpData[]){{_SLIT0, $si_g64_code, {.d_f64 = $in_str }}}))'
+	return 's_i(1, _MOV((Sid[]){{_SLIT0, $si_g64_code, {.d_f64 = $in_str }}}))'
 }
 
 // replace %% with the in_str
@@ -697,13 +697,47 @@ pub fn str_intp_sub(base_str string, in_str string) string {
 		st_str := base_str[..index]
 		if index + 2 < base_str.len {
 			en_str := base_str[index + 2..]
-			res_str := 'str_intp(2, _MOV((StrIntpData[]){{_SLIT("$st_str"), $si_s_code, {.d_s = $in_str }},{_SLIT("$en_str"), 0, {.d_c = 0}}}))'
+			res_str := 's_i(2, _MOV((Sid[]){{_SLIT("$st_str"), $si_s_code, {.d_s = $in_str }},{_SLIT("$en_str"), 0, {.d_c = 0}}}))'
 			st_str.free()
 			en_str.free()
 			return res_str
 		}
-		res2_str := 'str_intp(1, _MOV((StrIntpData[]){{_SLIT("$st_str"), $si_s_code, {.d_s = $in_str }}}))'
+		res2_str := 's_i(1, _MOV((Sid[]){{_SLIT("$st_str"), $si_s_code, {.d_s = $in_str }}}))'
 		st_str.free()
 		return res2_str
 	}
+}
+
+//====================================================================================
+// For bootstrap purpose only
+//====================================================================================
+pub struct StrIntpData {
+pub:
+	str string
+	// fmt     u64  // expanded version for future use, 64 bit
+	fmt u32
+	d   StrIntpMem
+}
+
+[manualfree]
+pub fn str_intp(data_len int, in_data voidptr) string {
+	mut res := strings.new_builder(256)
+	unsafe {
+		mut i := 0
+		for i < data_len {
+			data := &Sid(&byte(in_data) + (int(sizeof(Sid)) * i))
+			// avoid empty strings
+			if data.str.len != 0 {
+				res.write_string(data.str)
+			}
+			// skip empty data
+			if data.fmt != 0 {
+				data.get_fmt_format(mut &res)
+			}
+			i++
+		}
+	}
+	ret := res.str()
+	unsafe { res.free() }
+	return ret
 }

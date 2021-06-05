@@ -88,7 +88,7 @@ fn (mut g Gen) gen_str_for_struct(info ast.Struct, styp string, str_fn_name stri
 	if info.fields.len == 0 {
 		g.auto_str_funcs.write_string('\treturn _SLIT("$clean_struct_v_type_name{}");')
 	} else {
-		g.auto_str_funcs.write_string('\treturn str_intp( ${info.fields.len * 4 + 3}, _MOV((StrIntpData[]){\n')
+		g.auto_str_funcs.write_string('\treturn s_i( ${info.fields.len * 4 + 3}, _MOV((Sid[]){\n')
 		g.auto_str_funcs.write_string('\t\t{_SLIT("$clean_struct_v_type_name{\\n"), 0, {.d_c=0}},\n')
 
 		for i, field in info.fields {
@@ -195,19 +195,19 @@ fn struct_auto_str_func1(sym &ast.TypeSymbol, field_type ast.Type, fn_name strin
 			&& field_type.is_ptr() && !expects_ptr {
 			// ptr int can be "nil", so this needs to be casted to a string
 			if sym.kind == .f32 {
-				return 'str_intp(1, _MOV((StrIntpData[]){
+				return 's_i(1, _MOV((Sid[]){
 					{_SLIT0, $si_g32_code, {.d_f32 = *$method_str }}
 				}))'
 			} else if sym.kind == .f64 {
-				return 'str_intp(1, _MOV((StrIntpData[]){
+				return 's_i(1, _MOV((Sid[]){
 					{_SLIT0, $si_g64_code, {.d_f64 = *$method_str }}
 				}))'
 			} else if sym.kind == .u64 {
 				fmt_type := StrIntpType.si_u64
-				return 'str_intp(1, _MOV((StrIntpData[]){{_SLIT0, ${u32(fmt_type) | 0xfe00}, {.d_u64 = *$method_str }}}))'
+				return 's_i(1, _MOV((Sid[]){{_SLIT0, ${u32(fmt_type) | 0xfe00}, {.d_u64 = *$method_str }}}))'
 			}
 			fmt_type := StrIntpType.si_i32
-			return 'str_intp(1, _MOV((StrIntpData[]){{_SLIT0, ${u32(fmt_type) | 0xfe00}, {.d_i32 = *$method_str }}}))'
+			return 's_i(1, _MOV((Sid[]){{_SLIT0, ${u32(fmt_type) | 0xfe00}, {.d_i32 = *$method_str }}}))'
 		}
 		return method_str
 	}

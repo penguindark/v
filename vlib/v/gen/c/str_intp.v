@@ -1,5 +1,5 @@
 /*
-str_intp.v
+s_i.v
 
 Copyright (c) 2019-2021 Dario Deledda. All rights reserved.
 Use of this source code is governed by an MIT license
@@ -222,8 +222,8 @@ fn (mut g Gen) string_inter_literal(node ast.StringInterLiteral) {
 	}
 
 	// write struct
-	g.write(' str_intp($data.len, ')
-	g.write('_MOV((StrIntpData[]){')
+	g.write(' s_i($data.len, ')
+	g.write('_MOV((Sid[]){')
 	for i, item in data {
 		if item.str.len > 0 {
 			g.write('{_SLIT("$item.str"), $item.fmt, $item.d}')

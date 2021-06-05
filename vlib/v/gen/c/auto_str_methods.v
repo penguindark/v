@@ -236,7 +236,7 @@ fn (mut g Gen) gen_str_for_alias(info ast.Alias, styp string, str_fn_name string
 	g.auto_str_funcs.writeln('\t\tindents = string__plus(indents, _SLIT("    "));')
 	g.auto_str_funcs.writeln('\t}')
 
-	g.auto_str_funcs.writeln('\treturn str_intp(3, _MOV((StrIntpData[]){
+	g.auto_str_funcs.writeln('\treturn s_i(3, _MOV((Sid[]){
 		{_SLIT0, $c.si_s_code, {.d_s = indents }},
 		{_SLIT("${clean_type_v_type_name}("), $c.si_s_code, {.d_s = ${parent_str_fn_name}(it) }},
 		{_SLIT(")"), 0, {.d_c = 0 }}
@@ -370,7 +370,7 @@ fn (mut g Gen) gen_str_for_interface(info ast.Interface, styp string, str_fn_nam
 		}
 
 		//------------------------------------------
-		// str_intp
+		// s_i
 		deref := if sym_has_str_method && str_method_expects_ptr { ' ' } else { '*' }
 		if typ == ast.string_type {
 			mut val := '${func_name}(${deref}($subtype.cname*)x._$subtype.cname'
@@ -378,7 +378,7 @@ fn (mut g Gen) gen_str_for_interface(info ast.Interface, styp string, str_fn_nam
 				val += ', indent_count'
 			}
 			val += ')'
-			res := 'str_intp(2, _MOV((StrIntpData[]){
+			res := 's_i(2, _MOV((Sid[]){
 				{_SLIT("${clean_interface_v_type_name}(\'"), $c.si_s_code, {.d_s = $val}},
 				{_SLIT("\')"), 0, {.d_c = 0 }}
 			}))'
@@ -390,7 +390,7 @@ fn (mut g Gen) gen_str_for_interface(info ast.Interface, styp string, str_fn_nam
 				val += ', indent_count'
 			}
 			val += ')'
-			res := 'str_intp(2, _MOV((StrIntpData[]){
+			res := 's_i(2, _MOV((Sid[]){
 				{_SLIT("${clean_interface_v_type_name}("), $c.si_s_code, {.d_s = $val}},
 				{_SLIT(")"), 0, {.d_c = 0 }}
 			}))'
@@ -438,14 +438,14 @@ fn (mut g Gen) gen_str_for_union_sum_type(info ast.SumType, styp string, str_fn_
 		}
 
 		//------------------------------------------
-		// str_intp
+		// s_i
 		if typ == ast.string_type {
 			mut val := '${func_name}(${deref}($typ_str*)x._$sym.cname'
 			if should_use_indent_func(sym.kind) && !sym_has_str_method {
 				val += ', indent_count'
 			}
 			val += ')'
-			res := 'str_intp(2, _MOV((StrIntpData[]){
+			res := 's_i(2, _MOV((Sid[]){
 				{_SLIT("${clean_sum_type_v_type_name}(\'"), $c.si_s_code, {.d_s = $val}},
 				{_SLIT("\')"), 0, {.d_c = 0 }}
 			}))'
@@ -456,7 +456,7 @@ fn (mut g Gen) gen_str_for_union_sum_type(info ast.SumType, styp string, str_fn_
 				val += ', indent_count'
 			}
 			val += ')'
-			res := 'str_intp(2, _MOV((StrIntpData[]){
+			res := 's_i(2, _MOV((Sid[]){
 				{_SLIT("${clean_sum_type_v_type_name}("), $c.si_s_code, {.d_s = $val}},
 				{_SLIT(")"), 0, {.d_c = 0 }}
 			}))'
