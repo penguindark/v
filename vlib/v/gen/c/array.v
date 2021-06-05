@@ -83,7 +83,7 @@ fn (mut g Gen) array_init(node ast.ArrayInit) {
 			g.write('})')
 		} else if node.has_len && node.elem_type == ast.string_type {
 			g.write('&($elem_type_str[]){')
-			g.write('_SLIT("")')
+			g.write('_S("")')
 			g.write('})')
 		} else if node.has_len && elem_sym.kind in [.array, .map] {
 			g.write('(voidptr)&($elem_type_str[]){')

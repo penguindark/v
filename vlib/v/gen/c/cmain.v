@@ -192,13 +192,13 @@ pub fn (mut g Gen) gen_c_main_for_tests() {
 	g.writeln('\t_vinit(___argc, (voidptr)___argv);')
 	all_tfuncs := g.get_all_test_function_names()
 	if g.pref.is_stats {
-		g.writeln('\tmain__BenchedTests bt = main__start_testing($all_tfuncs.len, _SLIT("$g.pref.path"));')
+		g.writeln('\tmain__BenchedTests bt = main__start_testing($all_tfuncs.len, _S("$g.pref.path"));')
 	}
 	g.writeln('')
 	for tname in all_tfuncs {
 		tcname := util.no_dots(tname)
 		if g.pref.is_stats {
-			g.writeln('\tmain__BenchedTests_testing_step_start(&bt, _SLIT("$tcname"));')
+			g.writeln('\tmain__BenchedTests_testing_step_start(&bt, _S("$tcname"));')
 		}
 		g.writeln('\tif (!setjmp(g_jump_buffer)) ${tcname}();')
 		if g.pref.is_stats {

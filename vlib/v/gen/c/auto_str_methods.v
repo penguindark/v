@@ -106,11 +106,11 @@ fn (mut g Gen) gen_str_default(sym ast.TypeSymbol, styp string, str_fn_name stri
 	g.type_definitions.writeln('string ${str_fn_name}($styp it); // auto')
 	g.auto_str_funcs.writeln('string ${str_fn_name}($styp it) {')
 	if convertor == 'bool' {
-		g.auto_str_funcs.writeln('\tstring tmp1 = string__plus(_SLIT("${styp}("), ($convertor)it ? _SLIT("true") : _SLIT("false"));')
+		g.auto_str_funcs.writeln('\tstring tmp1 = string__plus(_S("${styp}("), ($convertor)it ? _S("true") : _S("false"));')
 	} else {
-		g.auto_str_funcs.writeln('\tstring tmp1 = string__plus(_SLIT("${styp}("), tos3(${typename_}_str(($convertor)it).str));')
+		g.auto_str_funcs.writeln('\tstring tmp1 = string__plus(_S("${styp}("), tos3(${typename_}_str(($convertor)it).str));')
 	}
-	g.auto_str_funcs.writeln('\tstring tmp2 = string__plus(tmp1, _SLIT(")"));')
+	g.auto_str_funcs.writeln('\tstring tmp2 = string__plus(tmp1, _S(")"));')
 	g.auto_str_funcs.writeln('\tstring_free(&tmp1);')
 	g.auto_str_funcs.writeln('\treturn tmp2;')
 	g.auto_str_funcs.writeln('}')
@@ -231,15 +231,15 @@ fn (mut g Gen) gen_str_for_alias(info ast.Alias, styp string, str_fn_name string
 	g.auto_str_funcs.writeln('static string ${str_fn_name}($styp it) { return indent_${str_fn_name}(it, 0); }')
 	g.type_definitions.writeln('static string indent_${str_fn_name}($styp it, int indent_count); // auto')
 	g.auto_str_funcs.writeln('static string indent_${str_fn_name}($styp it, int indent_count) {')
-	g.auto_str_funcs.writeln('\tstring indents = _SLIT("");')
+	g.auto_str_funcs.writeln('\tstring indents = _S("");')
 	g.auto_str_funcs.writeln('\tfor (int i = 0; i < indent_count; ++i) {')
-	g.auto_str_funcs.writeln('\t\tindents = string__plus(indents, _SLIT("    "));')
+	g.auto_str_funcs.writeln('\t\tindents = string__plus(indents, _S("    "));')
 	g.auto_str_funcs.writeln('\t}')
 
 	g.auto_str_funcs.writeln('\treturn s_i(3, _MOV((Sid[]){
-		{_SLIT0, $c.si_s_code, {.d_s = indents }},
-		{_SLIT("${clean_type_v_type_name}("), $c.si_s_code, {.d_s = ${parent_str_fn_name}(it) }},
-		{_SLIT(")"), 0, {.d_c = 0 }}
+		{_S0, $c.si_s_code, {.d_s = indents }},
+		{_S("${clean_type_v_type_name}("), $c.si_s_code, {.d_s = ${parent_str_fn_name}(it) }},
+		{_S(")"), 0, {.d_c = 0 }}
 	}));\n')
 
 	g.auto_str_funcs.writeln('}')
@@ -255,7 +255,7 @@ fn (mut g Gen) gen_str_for_multi_return(info ast.MultiReturn, styp string, str_f
 	g.type_definitions.writeln('static string ${str_fn_name}($styp a); // auto')
 	g.auto_str_funcs.writeln('static string ${str_fn_name}($styp a) {')
 	g.auto_str_funcs.writeln('\tstrings__Builder sb = strings__new_builder($info.types.len * 10);')
-	g.auto_str_funcs.writeln('\tstrings__Builder_write_string(&sb, _SLIT("("));')
+	g.auto_str_funcs.writeln('\tstrings__Builder_write_string(&sb, _S("("));')
 	for i, typ in info.types {
 		sym := g.table.get_type_symbol(typ)
 		field_styp := g.typ(typ)
@@ -288,14 +288,14 @@ fn (mut g Gen) gen_str_for_multi_return(info ast.MultiReturn, styp string, str_f
 			g.auto_str_funcs.writeln('\tstrings__Builder_write_string(&sb, ${arg_str_fn_name}());')
 		} else {
 			deref, deref_label := deref_kind(str_method_expects_ptr, is_arg_ptr, typ)
-			g.auto_str_funcs.writeln('\t\tstrings__Builder_write_string(&sb, _SLIT("$deref_label"));')
+			g.auto_str_funcs.writeln('\t\tstrings__Builder_write_string(&sb, _S("$deref_label"));')
 			g.auto_str_funcs.writeln('\tstrings__Builder_write_string(&sb, ${arg_str_fn_name}( $deref a.arg$i));')
 		}
 		if i != info.types.len - 1 {
-			g.auto_str_funcs.writeln('\tstrings__Builder_write_string(&sb, _SLIT(", "));')
+			g.auto_str_funcs.writeln('\tstrings__Builder_write_string(&sb, _S(", "));')
 		}
 	}
-	g.auto_str_funcs.writeln('\tstrings__Builder_write_string(&sb, _SLIT(")"));')
+	g.auto_str_funcs.writeln('\tstrings__Builder_write_string(&sb, _S(")"));')
 	g.auto_str_funcs.writeln('\tstring res = strings__Builder_str(&sb);')
 	g.auto_str_funcs.writeln('\tstrings__Builder_free(&sb);')
 	g.auto_str_funcs.writeln('\treturn res;')
@@ -309,12 +309,12 @@ fn (mut g Gen) gen_str_for_enum(info ast.Enum, styp string, str_fn_name string) 
 	// Enums tagged with `[flag]` are special in that they can be a combination of enum values
 	if info.is_flag {
 		clean_name := util.strip_main_name(styp.replace('__', '.'))
-		g.auto_str_funcs.writeln('\tstring ret = _SLIT("$clean_name{");')
+		g.auto_str_funcs.writeln('\tstring ret = _S("$clean_name{");')
 		g.auto_str_funcs.writeln('\tint first = 1;')
 		for i, val in info.vals {
-			g.auto_str_funcs.writeln('\tif (it & (1 << $i)) {if (!first) {ret = string__plus(ret, _SLIT(" | "));} ret = string__plus(ret, _SLIT(".$val")); first = 0;}')
+			g.auto_str_funcs.writeln('\tif (it & (1 << $i)) {if (!first) {ret = string__plus(ret, _S(" | "));} ret = string__plus(ret, _S(".$val")); first = 0;}')
 		}
-		g.auto_str_funcs.writeln('\tret = string__plus(ret, _SLIT("}"));')
+		g.auto_str_funcs.writeln('\tret = string__plus(ret, _S("}"));')
 		g.auto_str_funcs.writeln('\treturn ret;')
 	} else {
 		g.auto_str_funcs.writeln('\tswitch(it) {')
@@ -326,9 +326,9 @@ fn (mut g Gen) gen_str_for_enum(info ast.Enum, styp string, str_fn_name string) 
 			} else if info.is_multi_allowed {
 				seen << val
 			}
-			g.auto_str_funcs.writeln('\t\tcase ${s}_$val: return _SLIT("$val");')
+			g.auto_str_funcs.writeln('\t\tcase ${s}_$val: return _S("$val");')
 		}
-		g.auto_str_funcs.writeln('\t\tdefault: return _SLIT("unknown enum value");')
+		g.auto_str_funcs.writeln('\t\tdefault: return _S("unknown enum value");')
 		g.auto_str_funcs.writeln('\t}')
 	}
 	g.auto_str_funcs.writeln('}')
@@ -379,8 +379,8 @@ fn (mut g Gen) gen_str_for_interface(info ast.Interface, styp string, str_fn_nam
 			}
 			val += ')'
 			res := 's_i(2, _MOV((Sid[]){
-				{_SLIT("${clean_interface_v_type_name}(\'"), $c.si_s_code, {.d_s = $val}},
-				{_SLIT("\')"), 0, {.d_c = 0 }}
+				{_S("${clean_interface_v_type_name}(\'"), $c.si_s_code, {.d_s = $val}},
+				{_S("\')"), 0, {.d_c = 0 }}
 			}))'
 			g.auto_str_funcs.write_string('\tif (x._typ == _${styp}_${subtype.cname}_index)')
 			g.auto_str_funcs.write_string(' return $res;')
@@ -391,14 +391,14 @@ fn (mut g Gen) gen_str_for_interface(info ast.Interface, styp string, str_fn_nam
 			}
 			val += ')'
 			res := 's_i(2, _MOV((Sid[]){
-				{_SLIT("${clean_interface_v_type_name}("), $c.si_s_code, {.d_s = $val}},
-				{_SLIT(")"), 0, {.d_c = 0 }}
+				{_S("${clean_interface_v_type_name}("), $c.si_s_code, {.d_s = $val}},
+				{_S(")"), 0, {.d_c = 0 }}
 			}))'
 			g.auto_str_funcs.write_string('\tif (x._typ == _${styp}_${subtype.cname}_index)')
 			g.auto_str_funcs.write_string(' return $res;\n')
 		}
 	}
-	g.auto_str_funcs.writeln('\treturn _SLIT("unknown interface value");')
+	g.auto_str_funcs.writeln('\treturn _S("unknown interface value");')
 	g.auto_str_funcs.writeln('}')
 }
 
@@ -446,8 +446,8 @@ fn (mut g Gen) gen_str_for_union_sum_type(info ast.SumType, styp string, str_fn_
 			}
 			val += ')'
 			res := 's_i(2, _MOV((Sid[]){
-				{_SLIT("${clean_sum_type_v_type_name}(\'"), $c.si_s_code, {.d_s = $val}},
-				{_SLIT("\')"), 0, {.d_c = 0 }}
+				{_S("${clean_sum_type_v_type_name}(\'"), $c.si_s_code, {.d_s = $val}},
+				{_S("\')"), 0, {.d_c = 0 }}
 			}))'
 			g.auto_str_funcs.write_string('\t\tcase $typ: return $res;')
 		} else {
@@ -457,13 +457,13 @@ fn (mut g Gen) gen_str_for_union_sum_type(info ast.SumType, styp string, str_fn_
 			}
 			val += ')'
 			res := 's_i(2, _MOV((Sid[]){
-				{_SLIT("${clean_sum_type_v_type_name}("), $c.si_s_code, {.d_s = $val}},
-				{_SLIT(")"), 0, {.d_c = 0 }}
+				{_S("${clean_sum_type_v_type_name}("), $c.si_s_code, {.d_s = $val}},
+				{_S(")"), 0, {.d_c = 0 }}
 			}))'
 			g.auto_str_funcs.write_string('\t\tcase $typ: return $res;')
 		}
 	}
-	g.auto_str_funcs.writeln('\t\tdefault: return _SLIT("unknown sum type value");')
+	g.auto_str_funcs.writeln('\t\tdefault: return _S("unknown sum type value");')
 	g.auto_str_funcs.writeln('\t}')
 	g.auto_str_funcs.writeln('}')
 }
@@ -489,13 +489,13 @@ fn (mut g Gen) fn_decl_str(info ast.FnType) string {
 
 fn (mut g Gen) gen_str_for_fn_type(info ast.FnType, styp string, str_fn_name string) {
 	g.type_definitions.writeln('static string ${str_fn_name}(); // auto')
-	g.auto_str_funcs.writeln('static string ${str_fn_name}() { return _SLIT("${g.fn_decl_str(info)}");}')
+	g.auto_str_funcs.writeln('static string ${str_fn_name}() { return _S("${g.fn_decl_str(info)}");}')
 }
 
 fn (mut g Gen) gen_str_for_chan(info ast.Chan, styp string, str_fn_name string) {
 	elem_type_name := util.strip_main_name(g.table.get_type_name(g.unwrap_generic(info.elem_type)))
 	g.type_definitions.writeln('static string ${str_fn_name}($styp x); // auto')
-	g.auto_str_funcs.writeln('static string ${str_fn_name}($styp x) { return sync__Channel_auto_str(x, _SLIT("$elem_type_name")); }')
+	g.auto_str_funcs.writeln('static string ${str_fn_name}($styp x) { return sync__Channel_auto_str(x, _S("$elem_type_name")); }')
 }
 
 [inline]

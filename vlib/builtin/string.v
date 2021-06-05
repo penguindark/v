@@ -131,7 +131,7 @@ pub fn tos5(s &char) string {
 	return unsafe { tos3(s) }
 }
 
-[deprecated: 'tos_lit has been deprecated, use _SLIT instead']
+[deprecated: 'tos_lit has been deprecated, use _S instead']
 pub fn tos_lit(s &char) string {
 	return string{
 		str: &byte(s)

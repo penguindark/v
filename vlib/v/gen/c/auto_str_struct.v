@@ -81,15 +81,15 @@ fn (mut g Gen) gen_str_for_struct(info ast.Struct, styp string, str_fn_name stri
 	}
 	clean_struct_v_type_name = util.strip_main_name(clean_struct_v_type_name)
 	// generate ident / indent length = 4 spaces
-	g.auto_str_funcs.writeln('\tstring indents = _SLIT("");')
+	g.auto_str_funcs.writeln('\tstring indents = _S("");')
 	g.auto_str_funcs.writeln('\tfor (int i = 0; i < indent_count; ++i) {')
-	g.auto_str_funcs.writeln('\t\tindents = string__plus(indents, _SLIT("    "));')
+	g.auto_str_funcs.writeln('\t\tindents = string__plus(indents, _S("    "));')
 	g.auto_str_funcs.writeln('\t}')
 	if info.fields.len == 0 {
-		g.auto_str_funcs.write_string('\treturn _SLIT("$clean_struct_v_type_name{}");')
+		g.auto_str_funcs.write_string('\treturn _S("$clean_struct_v_type_name{}");')
 	} else {
 		g.auto_str_funcs.write_string('\treturn s_i( ${info.fields.len * 4 + 3}, _MOV((Sid[]){\n')
-		g.auto_str_funcs.write_string('\t\t{_SLIT("$clean_struct_v_type_name{\\n"), 0, {.d_c=0}},\n')
+		g.auto_str_funcs.write_string('\t\t{_S("$clean_struct_v_type_name{\\n"), 0, {.d_c=0}},\n')
 
 		for i, field in info.fields {
 			mut ptr_amp := if field.typ.is_ptr() { '&' } else { '' }
@@ -108,9 +108,9 @@ fn (mut g Gen) gen_str_for_struct(info ast.Struct, styp string, str_fn_name stri
 
 			// first fields doesn't need \n
 			if i == 0 {
-				g.auto_str_funcs.write_string('\t\t{_SLIT0, $si_s_code, {.d_s=indents}}, {_SLIT("    $field.name: $ptr_amp$prefix"), 0, {.d_c=0}}, ')
+				g.auto_str_funcs.write_string('\t\t{_S0, $si_s_code, {.d_s=indents}}, {_S("    $field.name: $ptr_amp$prefix"), 0, {.d_c=0}}, ')
 			} else {
-				g.auto_str_funcs.write_string('\t\t{_SLIT("\\n"), $si_s_code, {.d_s=indents}}, {_SLIT("    $field.name: $ptr_amp$prefix"), 0, {.d_c=0}}, ')
+				g.auto_str_funcs.write_string('\t\t{_S("\\n"), $si_s_code, {.d_s=indents}}, {_S("    $field.name: $ptr_amp$prefix"), 0, {.d_c=0}}, ')
 			}
 
 			// custom methods management
@@ -124,10 +124,10 @@ fn (mut g Gen) gen_str_for_struct(info ast.Struct, styp string, str_fn_name stri
 
 			// manage the fact hat with float we use always the g representation
 			if sym.kind !in [.f32, .f64] {
-				g.auto_str_funcs.write_string('{_SLIT("$quote_str"), ${int(base_fmt)}, {.${data_str(base_fmt)}=')
+				g.auto_str_funcs.write_string('{_S("$quote_str"), ${int(base_fmt)}, {.${data_str(base_fmt)}=')
 			} else {
 				g_fmt := '0x' + (u32(base_fmt) | u32(0x7F) << 9).hex()
-				g.auto_str_funcs.write_string('{_SLIT("$quote_str"), $g_fmt, {.${data_str(base_fmt)}=')
+				g.auto_str_funcs.write_string('{_S("$quote_str"), $g_fmt, {.${data_str(base_fmt)}=')
 			}
 
 			mut func := struct_auto_str_func1(sym, field.typ, field_styp_fn_name, field.name)
@@ -137,7 +137,7 @@ fn (mut g Gen) gen_str_for_struct(info ast.Struct, styp string, str_fn_name stri
 				|| field.typ in ast.byteptr_types
 				|| field.typ == ast.voidptr_type_idx) {
 				g.auto_str_funcs.write_string('isnil(it.${c_name(field.name)})')
-				g.auto_str_funcs.write_string(' ? _SLIT("nil") : ')
+				g.auto_str_funcs.write_string(' ? _S("nil") : ')
 				// struct, floats and ints have a special case through the _str function
 				if sym.kind != .struct_ && !field.typ.is_int_valptr()
 					&& !field.typ.is_float_valptr() {
@@ -146,7 +146,7 @@ fn (mut g Gen) gen_str_for_struct(info ast.Struct, styp string, str_fn_name stri
 			}
 			// handle circular ref type of struct to the struct itself
 			if styp == field_styp {
-				g.auto_str_funcs.write_string('_SLIT("<circular>")')
+				g.auto_str_funcs.write_string('_S("<circular>")')
 			} else {
 				// manage C charptr
 				if field.typ in ast.charptr_types {
@@ -156,9 +156,9 @@ fn (mut g Gen) gen_str_for_struct(info ast.Struct, styp string, str_fn_name stri
 				}
 			}
 
-			g.auto_str_funcs.write_string('}}, {_SLIT("$quote_str"), 0, {.d_c=0}},\n')
+			g.auto_str_funcs.write_string('}}, {_S("$quote_str"), 0, {.d_c=0}},\n')
 		}
-		g.auto_str_funcs.write_string('\t\t{_SLIT("\\n"), $si_s_code, {.d_s=indents}}, {_SLIT("}"), 0, {.d_c=0}},\n')
+		g.auto_str_funcs.write_string('\t\t{_S("\\n"), $si_s_code, {.d_s=indents}}, {_S("}"), 0, {.d_c=0}},\n')
 		g.auto_str_funcs.write_string('\t}));\n')
 	}
 	g.auto_str_funcs.writeln('}')
@@ -190,24 +190,24 @@ fn struct_auto_str_func1(sym &ast.TypeSymbol, field_type ast.Type, fn_name strin
 		}
 		mut method_str := 'it.${c_name(field_name)}'
 		if sym.kind == .bool {
-			method_str += ' ? _SLIT("true") : _SLIT("false")'
+			method_str += ' ? _S("true") : _S("false")'
 		} else if (field_type.is_int_valptr() || field_type.is_float_valptr())
 			&& field_type.is_ptr() && !expects_ptr {
 			// ptr int can be "nil", so this needs to be casted to a string
 			if sym.kind == .f32 {
 				return 's_i(1, _MOV((Sid[]){
-					{_SLIT0, $si_g32_code, {.d_f32 = *$method_str }}
+					{_S0, $si_g32_code, {.d_f32 = *$method_str }}
 				}))'
 			} else if sym.kind == .f64 {
 				return 's_i(1, _MOV((Sid[]){
-					{_SLIT0, $si_g64_code, {.d_f64 = *$method_str }}
+					{_S0, $si_g64_code, {.d_f64 = *$method_str }}
 				}))'
 			} else if sym.kind == .u64 {
 				fmt_type := StrIntpType.si_u64
-				return 's_i(1, _MOV((Sid[]){{_SLIT0, ${u32(fmt_type) | 0xfe00}, {.d_u64 = *$method_str }}}))'
+				return 's_i(1, _MOV((Sid[]){{_S0, ${u32(fmt_type) | 0xfe00}, {.d_u64 = *$method_str }}}))'
 			}
 			fmt_type := StrIntpType.si_i32
-			return 's_i(1, _MOV((Sid[]){{_SLIT0, ${u32(fmt_type) | 0xfe00}, {.d_i32 = *$method_str }}}))'
+			return 's_i(1, _MOV((Sid[]){{_S0, ${u32(fmt_type) | 0xfe00}, {.d_i32 = *$method_str }}}))'
 		}
 		return method_str
 	}

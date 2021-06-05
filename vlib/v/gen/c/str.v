@@ -12,7 +12,7 @@ fn (mut g Gen) write_str_fn_definitions() {
 fn (mut g Gen) string_literal(node ast.StringLiteral) {
 	if node.is_raw {
 		escaped_val := util.smart_quote(node.val, true)
-		g.write('_SLIT("$escaped_val")')
+		g.write('_S("$escaped_val")')
 		return
 	}
 	escaped_val := util.smart_quote(node.val, false)
@@ -21,7 +21,7 @@ fn (mut g Gen) string_literal(node ast.StringLiteral) {
 		// `C.printf("hi")` => `printf("hi");`
 		g.write('"$escaped_val"')
 	} else {
-		g.write('_SLIT("$escaped_val")')
+		g.write('_S("$escaped_val")')
 	}
 }
 
@@ -43,7 +43,7 @@ fn (mut g Gen) string_inter_literal_sb_optimized(call_expr ast.CallExpr) {
 		// }
 		g.write('strings__Builder_write_string(&')
 		g.expr(call_expr.left)
-		g.write(', _SLIT("')
+		g.write(', _S("')
 		g.write(escaped_val)
 		g.writeln('"));')
 		//
@@ -99,9 +99,9 @@ fn (mut g Gen) gen_expr_to_string(expr ast.Expr, etype ast.Type) {
 		g.expr(expr)
 	} else if typ == ast.bool_type {
 		g.expr(expr)
-		g.write(' ? _SLIT("true") : _SLIT("false")')
+		g.write(' ? _S("true") : _S("false")')
 	} else if sym.kind == .none_ {
-		g.write('_SLIT("<none>")')
+		g.write('_S("<none>")')
 	} else if sym.kind == .enum_ {
 		is_var := match expr {
 			ast.SelectorExpr, ast.Ident { true }
@@ -113,7 +113,7 @@ fn (mut g Gen) gen_expr_to_string(expr ast.Expr, etype ast.Type) {
 			g.enum_expr(expr)
 			g.write(')')
 		} else {
-			g.write('_SLIT("')
+			g.write('_S("')
 			g.enum_expr(expr)
 			g.write('")')
 		}
@@ -123,7 +123,7 @@ fn (mut g Gen) gen_expr_to_string(expr ast.Expr, etype ast.Type) {
 		is_var_mut := expr.is_auto_deref_var()
 		str_fn_name := g.gen_str_for_type(typ)
 		if is_ptr && !is_var_mut {
-			g.write('s_i(1, _MOV((Sid[]){{_SLIT("&"), $si_s_code ,{.d_s=')
+			g.write('s_i(1, _MOV((Sid[]){{_S("&"), $si_s_code ,{.d_s=')
 		}
 		g.write('${str_fn_name}(')
 		if str_method_expects_ptr && !is_ptr {

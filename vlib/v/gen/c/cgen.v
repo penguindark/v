@@ -698,7 +698,7 @@ fn (mut g Gen) register_chan_pop_optional_call(opt_el_type string, styp string) 
 static inline $opt_el_type __Option_${styp}_popval($styp ch) {
 	$opt_el_type _tmp = {0};
 	if (sync__Channel_try_pop_priv(ch, _tmp.data, false)) {
-		return ($opt_el_type){ .state = 2, .err = v_error(_SLIT("channel closed")), .data = {0} };
+		return ($opt_el_type){ .state = 2, .err = v_error(_S("channel closed")), .data = {0} };
 	}
 	return _tmp;
 }')
@@ -712,7 +712,7 @@ fn (mut g Gen) register_chan_push_optional_call(el_type string, styp string) {
 		g.channel_definitions.writeln('
 static inline Option_void __Option_${styp}_pushval($styp ch, $el_type e) {
 	if (sync__Channel_try_push_priv(ch, &e, false)) {
-		return (Option_void){ .state = 2, .err = v_error(_SLIT("channel closed")), .data = {0} };
+		return (Option_void){ .state = 2, .err = v_error(_S("channel closed")), .data = {0} };
 	}
 	return (Option_void){0};
 }')
@@ -1914,9 +1914,9 @@ fn cestring(s string) string {
 	return s.replace('\\', '\\\\').replace('"', "'")
 }
 
-// ctoslit returns a '_SLIT("$s")' call, where s is properly escaped.
+// ctoslit returns a '_S("$s")' call, where s is properly escaped.
 fn ctoslit(s string) string {
-	return '_SLIT("' + cestring(s) + '")'
+	return '_S("' + cestring(s) + '")'
 }
 
 fn (mut g Gen) gen_attrs(attrs []ast.Attr) {
@@ -3365,7 +3365,7 @@ fn (mut g Gen) type_name(typ ast.Type) {
 	} else {
 		s = g.table.type_to_str(g.unwrap_generic(typ))
 	}
-	g.write('_SLIT("${util.strip_main_name(s)}")')
+	g.write('_S("${util.strip_main_name(s)}")')
 }
 
 fn (mut g Gen) typeof_expr(node ast.TypeOf) {
@@ -3379,17 +3379,17 @@ fn (mut g Gen) typeof_expr(node ast.TypeOf) {
 	} else if sym.kind == .array_fixed {
 		fixed_info := sym.info as ast.ArrayFixed
 		typ_name := g.table.get_type_name(fixed_info.elem_type)
-		g.write('_SLIT("[$fixed_info.size]${util.strip_main_name(typ_name)}")')
+		g.write('_S("[$fixed_info.size]${util.strip_main_name(typ_name)}")')
 	} else if sym.kind == .function {
 		info := sym.info as ast.FnType
-		g.write('_SLIT("${g.fn_decl_str(info)}")')
+		g.write('_S("${g.fn_decl_str(info)}")')
 	} else if node.expr_type.has_flag(.variadic) {
 		varg_elem_type_sym := g.table.get_type_symbol(g.table.value_type(node.expr_type))
-		g.write('_SLIT("...${util.strip_main_name(varg_elem_type_sym.name)}")')
+		g.write('_S("...${util.strip_main_name(varg_elem_type_sym.name)}")')
 	} else {
 		x := g.table.type_to_str(node.expr_type)
 		y := util.strip_main_name(x)
-		g.write('_SLIT("$y")')
+		g.write('_S("$y")')
 	}
 }
 
@@ -6230,7 +6230,7 @@ fn (mut g Gen) go_expr(node ast.GoExpr) {
 			} else {
 				g.gowrappers.writeln('\tint stat = pthread_join(thread, (void **)$c_ret_ptr_ptr);')
 			}
-			g.gowrappers.writeln('\tif (stat != 0) { v_panic(_SLIT("unable to join thread")); }')
+			g.gowrappers.writeln('\tif (stat != 0) { v_panic(_S("unable to join thread")); }')
 			if g.pref.os == .windows {
 				if node.call_expr.return_type == ast.void_type {
 					g.gowrappers.writeln('\tCloseHandle(thread);')
@@ -6350,14 +6350,14 @@ fn (mut g Gen) as_cast(node ast.AsCast) {
 
 fn (g Gen) as_cast_name_table() string {
 	if g.as_cast_type_names.len == 0 {
-		return 'new_array_from_c_array(1, 1, sizeof(VCastTypeIndexName), _MOV((VCastTypeIndexName[1]){(VCastTypeIndexName){.tindex = 0,.tname = _SLIT("unknown")}}));\n'
+		return 'new_array_from_c_array(1, 1, sizeof(VCastTypeIndexName), _MOV((VCastTypeIndexName[1]){(VCastTypeIndexName){.tindex = 0,.tname = _S("unknown")}}));\n'
 	}
 	mut name_ast := strings.new_builder(1024)
 	casts_len := g.as_cast_type_names.len + 1
 	name_ast.writeln('new_array_from_c_array($casts_len, $casts_len, sizeof(VCastTypeIndexName), _MOV((VCastTypeIndexName[$casts_len]){')
-	name_ast.writeln('\t\t  (VCastTypeIndexName){.tindex = 0, .tname = _SLIT("unknown")}')
+	name_ast.writeln('\t\t  (VCastTypeIndexName){.tindex = 0, .tname = _S("unknown")}')
 	for key, value in g.as_cast_type_names {
-		name_ast.writeln('\t\t, (VCastTypeIndexName){.tindex = $key, .tname = _SLIT("$value")}')
+		name_ast.writeln('\t\t, (VCastTypeIndexName){.tindex = $key, .tname = _S("$value")}')
 	}
 	name_ast.writeln('\t}));\n')
 	return name_ast.str()

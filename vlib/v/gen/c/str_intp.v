@@ -226,9 +226,9 @@ fn (mut g Gen) string_inter_literal(node ast.StringInterLiteral) {
 	g.write('_MOV((Sid[]){')
 	for i, item in data {
 		if item.str.len > 0 {
-			g.write('{_SLIT("$item.str"), $item.fmt, $item.d}')
+			g.write('{_S("$item.str"), $item.fmt, $item.d}')
 		} else {
-			g.write('{_SLIT0, $item.fmt, $item.d}')
+			g.write('{_S0, $item.fmt, $item.d}')
 		}
 
 		if i < (data.len - 1) {

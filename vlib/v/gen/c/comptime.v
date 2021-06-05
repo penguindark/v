@@ -37,7 +37,7 @@ fn (mut g Gen) comptime_call(node ast.ComptimeCall) {
 	if node.method_name == 'env' {
 		// $env('ENV_VAR_NAME')
 		val := util.cescaped_path(os.getenv(node.args_var))
-		g.write('_SLIT("$val")')
+		g.write('_S("$val")')
 		return
 	}
 	if node.is_vweb {
@@ -156,7 +156,7 @@ fn (mut g Gen) comptime_call(node ast.ComptimeCall) {
 			if j > 0 {
 				g.write(' else ')
 			}
-			g.write('if (string__eq($node.method_name, _SLIT("$method.name"))) ')
+			g.write('if (string__eq($node.method_name, _S("$method.name"))) ')
 		}
 		g.write('${util.no_dots(node.sym.name)}_${method.name}($amp ')
 		g.expr(node.left)
@@ -173,7 +173,7 @@ fn cgen_attrs(attrs []ast.Attr) []string {
 		if attr.arg.len > 0 {
 			s += ': $attr.arg'
 		}
-		res << '_SLIT("$s")'
+		res << '_S("$s")'
 	}
 	return res
 }
@@ -181,10 +181,10 @@ fn cgen_attrs(attrs []ast.Attr) []string {
 fn (mut g Gen) comp_at(node ast.AtExpr) {
 	if node.kind == .vmod_file {
 		val := cnewlines(node.val.replace('\r', ''))
-		g.write('_SLIT("$val")')
+		g.write('_S("$val")')
 	} else {
 		val := node.val.replace('\\', '\\\\')
-		g.write('_SLIT("$val")')
+		g.write('_S("$val")')
 	}
 }
 
@@ -395,7 +395,7 @@ fn (mut g Gen) comp_for(node ast.CompFor) {
 	g.indent++
 	// vweb_result_type := ast.new_type(g.table.find_type_idx('vweb.Result'))
 	mut i := 0
-	// g.writeln('string method = _SLIT("");')
+	// g.writeln('string method = _S("");')
 	if node.kind == .methods {
 		mut methods := sym.methods.filter(it.attrs.len == 0) // methods without attrs first
 		methods_with_attrs := sym.methods.filter(it.attrs.len > 0) // methods with attrs second
@@ -411,7 +411,7 @@ fn (mut g Gen) comp_for(node ast.CompFor) {
 			*/
 			g.comp_for_method = method.name
 			g.writeln('/* method $i */ {')
-			g.writeln('\t${node.val_var}.name = _SLIT("$method.name");')
+			g.writeln('\t${node.val_var}.name = _S("$method.name");')
 			if method.attrs.len == 0 {
 				g.writeln('\t${node.val_var}.attrs = __new_array_with_default(0, 0, sizeof(string), 0);')
 			} else {
@@ -429,7 +429,7 @@ fn (mut g Gen) comp_for(node ast.CompFor) {
 				// Skip receiver arg
 				for j, arg in method.params[1..] {
 					typ := arg.typ.idx()
-					g.write('{$typ.str(), _SLIT("$arg.name")}')
+					g.write('{$typ.str(), _S("$arg.name")}')
 					if j < len - 1 {
 						g.write(', ')
 					}
@@ -485,7 +485,7 @@ fn (mut g Gen) comp_for(node ast.CompFor) {
 				g.comp_for_field_var = node.val_var
 				g.comp_for_field_value = field
 				g.writeln('/* field $i */ {')
-				g.writeln('\t${node.val_var}.name = _SLIT("$field.name");')
+				g.writeln('\t${node.val_var}.name = _S("$field.name");')
 				if field.attrs.len == 0 {
 					g.writeln('\t${node.val_var}.attrs = __new_array_with_default(0, 0, sizeof(string), 0);')
 				} else {
@@ -495,7 +495,7 @@ fn (mut g Gen) comp_for(node ast.CompFor) {
 						attrs.join(', ') + '}));\n')
 				}
 				// field_sym := g.table.get_type_symbol(field.typ)
-				// g.writeln('\t${node.val_var}.typ = _SLIT("$field_sym.name");')
+				// g.writeln('\t${node.val_var}.typ = _S("$field_sym.name");')
 				styp := field.typ
 				g.writeln('\t${node.val_var}.typ = $styp;')
 				g.writeln('\t${node.val_var}.is_pub = $field.is_pub;')
@@ -515,9 +515,9 @@ fn (mut g Gen) comp_for(node ast.CompFor) {
 			for attr in sym.info.attrs {
 				g.writeln('/* attribute $i */ {')
 
-				g.writeln('\t${node.val_var}.name = _SLIT("$attr.name");')
+				g.writeln('\t${node.val_var}.name = _S("$attr.name");')
 				g.writeln('\t${node.val_var}.has_arg = $attr.has_arg;')
-				g.writeln('\t${node.val_var}.arg = _SLIT("$attr.arg");')
+				g.writeln('\t${node.val_var}.arg = _S("$attr.arg");')
 				g.writeln('\t${node.val_var}.kind = AttributeKind_$attr.kind;')
 
 				g.writeln('}')
