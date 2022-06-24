@@ -234,7 +234,8 @@ mut:
 	group_capture bool = true // if false the group is not captured
 	group_neg bool // negation flag for the group, 0 => no negation > 0 => negataion
 	group_id  int = -1 // id of the group
-	
+	jmp_pc    int = -1
+
 	// section row index
 	row_i   int = -1 // row to execute if dot or group
 	// or flag
@@ -272,6 +273,8 @@ pub mut:
 	groups           []int // groups index results
 	group_index      map[string]int // group name to index
 	group_name       []string // group name by index
+
+	groups_pc        []int
 
 	// flags
 	flag int // flag for optional parameters
@@ -844,6 +847,7 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 	mut pc := 0 // section ist counter
 	mut row := []Token{}
 
+	re.groups_pc << -1
 	for i < in_txt.len {
 		mut char_tmp := u32(0)
 		mut char_len := 0
@@ -868,9 +872,8 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 
 		// ist_group_start
 		if char_len == 1 && pc >= 0 && u8(char_tmp) == `(` {
-			
-			group_res, cgroup_flag, negate_flag, cgroup_name, next_i := re.parse_groups(in_txt,
-				i)
+			// println("Group start")
+			group_res, cgroup_flag, negate_flag, cgroup_name, next_i := re.parse_groups(in_txt, i)
 			//println("group_res: $group_res cgroup_flag: $cgroup_flag negate_flag: $negate_flag cgroup_name: [$cgroup_name] next_i: $next_i")
 
 			// manage question mark format error
@@ -892,23 +895,29 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 				re.group_index[cgroup_name] = t.row_i
 			}
 			
+			re.groups_pc << row.len - 1
+
 			pc = pc + 1
-			//i = i + char_len
 			i = next_i
 			//println("pos: ${i}")
-			res, res_pos := re.compile_section(in_txt, i , t.row_i)
+			
 			//println("res: ${res} res_pos: ${res_pos} lev: ${t.row_i}")
-			if res != regex.compile_ok {
-				return res, res_pos
-			}
-			i = res_pos
+			
 			continue
 		}
 
 		// ist_group_end
 		if char_len == 1 && pc >= 0 && u8(char_tmp) == `)` {
+			// println("Group end")
 			i = i + char_len
-			break
+			mut t := Token{}
+			t.ist = u32(0) | regex.ist_group_end
+			t.row_i = re.group_count
+			t.rep_min = row[re.groups_pc[re.group_count]].rep_min
+			t.rep_max = row[re.groups_pc[re.group_count]].rep_max
+			t.jmp_pc = re.groups_pc[re.group_count]
+			row << t
+			continue
 		}
 
 		// Quantifiers
@@ -1241,7 +1250,8 @@ fn (re RE) get_query_int(mut res strings.Builder, level int) {
 			else if re.group_name[tk.row_i].len > 0 {
 				res.write_string('?P<${re.group_name[tk.row_i]}>')
 			}
-			re.get_query_int(mut res, tk.row_i)
+		}
+		else if ist == regex.ist_group_end {
 			res.write_string(')')
 			get_quantifier_string(mut res, tk)
 		}
@@ -1309,7 +1319,10 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 					println("[DOT ] i:$i [${ch}] ${quant}")
 				}
 				regex.ist_group_start {
-					println("[GRP ] i:$i [${ch}] ${quant}")
+					println("[ (  ] i:$i [${ch}] ${quant}")
+				}
+				regex.ist_group_end {
+					println("[ )  ] i:$i [${ch}] ${quant}")
 				}
 				else {
 					println("debug print level ${re.debug} ERROR!!")
@@ -1324,40 +1337,40 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 
 		// groups
 		if tk.ist == regex.ist_group_start {
-			//println("Check ist_group_start: $tk.row_i from pc: 0")
-			s, e := re.match_base(in_txt, i, in_txt_len, tk.row_i, 0, level, pc)
-			//println("ist_group_start inner res: $s $e level: $level")
-
-			// negation group management
-			if tk.group_neg == true{
-				// negation group match, exit 
-				if s >= 0 {
-					return regex.no_match_found, i
-				}
-				// negation group doesn't match, continue
-				rep++
-				i = e
-				
-			} else if s >= 0 {
-				
-				if tk.group_capture == true {
-					re.groups[tk.row_i * 2] = i	
-					re.groups[tk.row_i * 2 + 1] = e
-				}
-				rep++
-				i = e
-				//println("OK group checked rep: $rep")
-				if rep < tk.rep_min {
-					continue
-				}
-				if rep < tk.rep_max {
-					continue
-				}
-			}
-
-			// else { println("ist_group_start FAILED") }
+			println("ist_group_start")
+			rep = 0
+			pc++
+			continue
 		}
-		
+		else if tk.ist == regex.ist_group_end {
+			println("ist_group_end ${tk.rep_min} ${tk.rep_max}")
+			tk.rep++
+			rep = tk.rep
+			re.prog[tk.jmp_pc].rep = tk.rep
+			
+			if tk.rep < tk.rep_min {
+				pc = tk.jmp_pc
+				continue
+			}
+			if tk.rep < tk.rep_max {
+				if re.prog[pc + 1].ist != regex.ist_prog_end {
+					println("Check the rest")
+					mut tmp_buf := []int{len: re.prog.len}
+					for x in re.prog {
+						tmp_buf << x.rep
+					}
+					s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0 ,0)
+					if s >= 0 {
+						return 0, e
+					}
+					for c,x in tmp_buf {
+						re.prog[c].rep = x
+					}
+				}
+				pc = tk.jmp_pc
+			}
+		}
+
 		// check rune alone
 		else if tk.ist == regex.ist_simple_char {
 			if tk.ch == ch {
@@ -1397,6 +1410,19 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 					continue
 				}
 				if rep < tk.rep_max {
+					if re.prog[pc + 1].ist != regex.ist_prog_end {
+						mut tmp_buf := []int{len: re.prog.len}
+						for x in re.prog {
+							tmp_buf << x.rep
+						}
+						s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0 ,0)
+						if s >= 0 {
+							return 0, e
+						}
+						for c,x in tmp_buf {
+							re.prog[c].rep = x
+						}
+					}
 					continue
 				}
 			}
@@ -1420,18 +1446,13 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 							tmp_buf << x.rep
 						}
 						s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0 ,0)
-						println("ist_bsls_char inner res: $s $e level: $level")
 						if s >= 0 {
-							println("HERE good! end: ${e}")
 							return 0, e
 						}
 						for c,x in tmp_buf {
 							re.prog[c].rep = x
 						}
-					} else {
-						println("Next is PROG_END")
 					}
-
 					continue
 				}
 				//println("ist_bsls_char match!")
@@ -1444,11 +1465,17 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 		else if tk.ist == regex.ist_dot_char {
 			//println("[DOT ] pc: ${level}:${pc} index:$i [${ch}] ${tk.rep} in {${tk.rep_min},${tk.rep_max}}")
 			if tk.rep_min == 0 && rep == 0 && re.prog[pc].ist != regex.ist_prog_end {
-				s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, level, pc) 
+				mut tmp_buf := []int{len: re.prog.len}
+				for x in re.prog {
+					tmp_buf << x.rep
+				}
+				s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0, 0) 
 				if s >= 0 {
-					re.call_level--
 					return s, e
-				}	
+				}
+				for c,x in tmp_buf {
+					re.prog[c].rep = x
+				}
 			} 
 			
 			rep++
@@ -1459,16 +1486,19 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 			}
 			
 			if rep < tk.rep_max {			
-				/*
-				if re.prog[pc].ist != regex.ist_prog_end {
-					s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, level, pc)
-					// println("ist_dot_char inner res: $s $e")
+				if re.prog[pc + 1].ist != regex.ist_prog_end {
+					mut tmp_buf := []int{len: re.prog.len}
+					for x in re.prog {
+						tmp_buf << x.rep
+					}
+					s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0, 0) 
 					if s >= 0 {
-						re.call_level--
 						return s, e
-					} 
+					}
+					for c,x in tmp_buf {
+						re.prog[c].rep = x
+					}
 				}
-				*/
 				continue
 			}
 		}
