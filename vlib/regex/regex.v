@@ -48,22 +48,16 @@ const (
 	//*************************************
 	// regex program instructions
 	//*************************************
-	ist_simple_char    = u32(0x7FFFFFFF) // single char instruction, 31 bit available to char
-	// char class 11 0100 AA xxxxxxxx
-	// AA = 00  regular class
-	// AA = 01  Negated class ^ char
-	ist_char_class     = 0xD1000000 // MASK
-	ist_char_class_pos = 0xD0000000 // char class normal [abc]
-	ist_char_class_neg = 0xD1000000 // char class negate [^abc]
-	// dot char        10 0110 xx xxxxxxxx
-	ist_dot_char       = 0x98000000 // match any char except \n
-	// backslash chars 10 0100 xx xxxxxxxx
-	ist_bsls_char      = 0x90000000 // backslash char
-	// groups          10 010Y xx xxxxxxxx
-	ist_group_start    = 0x92000000 // group start (
-	ist_group_end      = 0x94000000 // group end   )
+	ist_simple_char    = 0x00000001 // single char instruction, 31 bit available to char
+	ist_char_class_pos = 0x00000002 // char class normal [abc]
+	ist_char_class_neg = 0x00000003 // char class negate [^abc]
+	ist_dot_char       = 0x00000004 // match any char except \n
+	ist_bsls_char      = 0x00000005 // backslash char
+	// groups          
+	ist_group_start    = 0x00000006 // group start (
+	ist_group_end      = 0x00000007 // group end   )
 	// control instructions
-	ist_prog_end       = u32(0x88000000) // 10 0010 xx xxxxxxxx
+	ist_prog_end       = 0x00000008 // end the program
 
 	//*************************************
 )
@@ -75,7 +69,7 @@ const (
 ******************************************************************************/
 // utf8util_rune_len calculate the length in bytes of a utf8 rune
 [inline]
-fn utf8util_rune_len(b byte) int {
+fn utf8util_rune_len(b u8) int {
 	return ((0xe5000000 >> ((b >> 3) & 0x1e)) & 3) + 1
 }
 
@@ -100,7 +94,7 @@ fn (re RE) get_rune(in_txt string, i int) (u32, int) {
 
 // get_runeb get a rune from position i and return an u32 with the unicode code
 [direct_array_access; inline]
-fn (re RE) get_runeb(in_txt &byte, i int) (u32, int) {
+fn (re RE) get_runeb(in_txt &u8, i int) (u32, int) {
 	// ascii 8 bit
 	if (re.flag & regex.f_bin) != 0 || unsafe { in_txt[i] } & 0x80 == 0 {
 		return u32(unsafe { in_txt[i] }), 1
@@ -117,7 +111,7 @@ fn (re RE) get_runeb(in_txt &byte, i int) (u32, int) {
 }
 
 [inline]
-fn is_alnum(in_char byte) bool {
+fn is_alnum(in_char u8) bool {
 	mut tmp := in_char - `A`
 	if tmp <= 25 {
 		return true
@@ -137,39 +131,39 @@ fn is_alnum(in_char byte) bool {
 }
 
 [inline]
-fn is_not_alnum(in_char byte) bool {
+fn is_not_alnum(in_char u8) bool {
 	return !is_alnum(in_char)
 }
 
 [inline]
-fn is_space(in_char byte) bool {
+fn is_space(in_char u8) bool {
 	return in_char in regex.spaces
 }
 
 [inline]
-fn is_not_space(in_char byte) bool {
+fn is_not_space(in_char u8) bool {
 	return !is_space(in_char)
 }
 
 [inline]
-fn is_digit(in_char byte) bool {
+fn is_digit(in_char u8) bool {
 	tmp := in_char - `0`
 	return tmp <= 0x09
 }
 
 [inline]
-fn is_not_digit(in_char byte) bool {
+fn is_not_digit(in_char u8) bool {
 	return !is_digit(in_char)
 }
 
 [inline]
-fn is_lower(in_char byte) bool {
+fn is_lower(in_char u8) bool {
 	tmp := in_char - `a`
 	return tmp <= 25
 }
 
 [inline]
-fn is_upper(in_char byte) bool {
+fn is_upper(in_char u8) bool {
 	tmp := in_char - `A`
 	return tmp <= 25
 }
@@ -199,7 +193,7 @@ fn utf8_str(ch rune) string {
 	mut i := 4
 	mut res := ''
 	for i > 0 {
-		v := byte((ch >> ((i - 1) * 8)) & 0xFF)
+		v := u8((ch >> ((i - 1) * 8)) & 0xFF)
 		if v != 0 {
 			res += '${v:1c}'
 		}
@@ -218,14 +212,13 @@ fn simple_log(txt string) {
 * Token Structs
 *
 ******************************************************************************/
-pub type FnValidator = fn (byte) bool
+pub type FnValidator = fn (u8) bool
 
 struct Token {
 mut:
-	ist rune
+	ist u32
 	// char
 	ch     rune // char of the token if any
-	ch_len byte // char len
 	// Quantifiers / branch
 	rep_min i64  // used also for jump next in the OR branch [no match] pc jump
 	rep_max i64  // used also for jump next in the OR branch [   match] pc jump
@@ -233,7 +226,7 @@ mut:
 	// Char class
 	cc_index int = -1
 	// counters for quantifier check (repetitions)
-	//rep int
+	rep int
 	// validator function pointer
 	validator FnValidator
 	
@@ -269,7 +262,7 @@ pub type FnLog = fn (string)
 
 pub struct RE {
 pub mut:
-	prog [][]Token // regex program
+	prog []Token // regex program
 	
 	// char classes storage
 	cc       []CharClass // char class list
@@ -332,7 +325,7 @@ fn (re RE) parse_bsls(in_txt string, in_i int) (int, int) {
 	for i < in_txt.len {
 		// get our char
 		char_tmp, char_len := re.get_rune(in_txt, i)
-		ch := byte(char_tmp)
+		ch := u8(char_tmp)
 
 		if status == .start && ch == `\\` {
 			status = .bsls_found
@@ -396,10 +389,10 @@ enum CharClass_parse_state {
 }
 
 fn (re RE) get_char_class(level int, pc int) string {
-	buf := []byte{len: (re.cc.len)}
-	mut buf_ptr := unsafe { &byte(&buf) }
+	buf := []u8{len: (re.cc.len)}
+	mut buf_ptr := unsafe { &u8(&buf) }
 
-	mut cc_i := re.prog[level][pc].cc_index
+	mut cc_i := re.prog[pc].cc_index
 	mut i := 0
 	mut tmp := 0
 	for cc_i >= 0 && cc_i < re.cc.len && re.cc[cc_i].cc_type != regex.cc_end {
@@ -407,13 +400,13 @@ fn (re RE) get_char_class(level int, pc int) string {
 			unsafe {
 				buf_ptr[i] = `\\`
 				i++
-				buf_ptr[i] = byte(re.cc[cc_i].ch0)
+				buf_ptr[i] = u8(re.cc[cc_i].ch0)
 				i++
 			}
 		} else if re.cc[cc_i].ch0 == re.cc[cc_i].ch1 {
 			tmp = 3
 			for tmp >= 0 {
-				x := byte((re.cc[cc_i].ch0 >> (tmp * 8)) & 0xFF)
+				x := u8((re.cc[cc_i].ch0 >> (tmp * 8)) & 0xFF)
 				if x != 0 {
 					unsafe {
 						buf_ptr[i] = x
@@ -425,7 +418,7 @@ fn (re RE) get_char_class(level int, pc int) string {
 		} else {
 			tmp = 3
 			for tmp >= 0 {
-				x := byte((re.cc[cc_i].ch0 >> (tmp * 8)) & 0xFF)
+				x := u8((re.cc[cc_i].ch0 >> (tmp * 8)) & 0xFF)
 				if x != 0 {
 					unsafe {
 						buf_ptr[i] = x
@@ -440,7 +433,7 @@ fn (re RE) get_char_class(level int, pc int) string {
 			}
 			tmp = 3
 			for tmp >= 0 {
-				x := byte((re.cc[cc_i].ch1 >> (tmp * 8)) & 0xFF)
+				x := u8((re.cc[cc_i].ch1 >> (tmp * 8)) & 0xFF)
 				if x != 0 {
 					unsafe {
 						buf_ptr[i] = x
@@ -453,17 +446,17 @@ fn (re RE) get_char_class(level int, pc int) string {
 		cc_i++
 	}
 	unsafe {
-		buf_ptr[i] = byte(0)
+		buf_ptr[i] = u8(0)
 	}
 	return unsafe { tos_clone(buf_ptr) }
 }
 
 
 fn (re RE) check_char_class(level int, pc int, ch rune) bool {
-	mut cc_i := re.prog[level][pc].cc_index
+	mut cc_i := re.prog[pc].cc_index
 	for cc_i >= 0 && cc_i < re.cc.len && re.cc[cc_i].cc_type != regex.cc_end {
 		if re.cc[cc_i].cc_type == regex.cc_bsls {
-			if re.cc[cc_i].validator(byte(ch)) {
+			if re.cc[cc_i].validator(u8(ch)) {
 				return true
 			}
 		} else if ch >= re.cc[cc_i].ch0 && ch <= re.cc[cc_i].ch1 {
@@ -476,7 +469,7 @@ fn (re RE) check_char_class(level int, pc int, ch rune) bool {
 
 
 // parse_char_class return (index, str_len, cc_type) of a char class [abcm-p], char class start after the [ char
-fn (mut re RE) parse_char_class(in_txt string, in_i int) (int, int, rune) {
+fn (mut re RE) parse_char_class(in_txt string, in_i int) (int, int, u32) {
 	mut status := CharClass_parse_state.start
 	mut i := in_i
 
@@ -493,7 +486,7 @@ fn (mut re RE) parse_char_class(in_txt string, in_i int) (int, int, rune) {
 
 		// get our char
 		char_tmp, char_len := re.get_rune(in_txt, i)
-		ch := byte(char_tmp)
+		ch := u8(char_tmp)
 
 		// println("CC #${i:3d} ch: ${ch:c}")
 
@@ -620,7 +613,7 @@ fn (re RE) parse_quantifier(in_txt string, in_i int) (int, int, int, bool) {
 	mut q_min := 0 // default min in a {} quantifier is 1
 	mut q_max := 0 // deafult max in a {} quantifier is max_quantifier
 
-	mut ch := byte(0)
+	mut ch := u8(0)
 
 	for i < in_txt.len {
 		unsafe {
@@ -753,7 +746,7 @@ fn (re RE) parse_groups(in_txt string, in_i int) (int, bool, bool, string, int) 
 	for i < in_txt.len && status != .finish {
 		// get our char
 		char_tmp, char_len := re.get_rune(in_txt, i)
-		ch := byte(char_tmp)
+		ch := u8(char_tmp)
 
 		// start
 		if status == .start && ch == `(` {
@@ -862,19 +855,19 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 		// check special cases: $ ^
 		//
 		//println("char[${char_tmp:c}]")
-		if (char_len == 1) && (i == 0) && (byte(char_tmp) == `^`) {
+		if (char_len == 1) && (i == 0) && (u8(char_tmp) == `^`) {
 			re.flag |= regex.f_ms
 			i = i + char_len
 			continue
 		}
-		if (char_len == 1) && (i == (in_txt.len - 1)) && (byte(char_tmp) == `$`) {
+		if (char_len == 1) && (i == (in_txt.len - 1)) && (u8(char_tmp) == `$`) {
 			re.flag |= regex.f_me
 			i = i + char_len
 			continue
 		}
 
 		// ist_group_start
-		if char_len == 1 && pc >= 0 && byte(char_tmp) == `(` {
+		if char_len == 1 && pc >= 0 && u8(char_tmp) == `(` {
 			
 			group_res, cgroup_flag, negate_flag, cgroup_name, next_i := re.parse_groups(in_txt,
 				i)
@@ -913,7 +906,7 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 		}
 
 		// ist_group_end
-		if char_len == 1 && pc >= 0 && byte(char_tmp) == `)` {
+		if char_len == 1 && pc >= 0 && u8(char_tmp) == `)` {
 			i = i + char_len
 			break
 		}
@@ -932,7 +925,7 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 				return regex.err_neg_group_quantifier, i
 			}
 
-			match byte(char_tmp) {
+			match u8(char_tmp) {
 				`?` {
 					// println("q: ${char_tmp:c}")
 					// check illegal quantifier sequences
@@ -1001,7 +994,7 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 		}
 
 		// IST_DOT_CHAR
-		if char_len == 1 && pc >= 0 && byte(char_tmp) == `.` {
+		if char_len == 1 && pc >= 0 && u8(char_tmp) == `.` {
 			// consecutive ist_dot_char is a syntax error
 			mut t := Token{}
 			t.ist = u32(0) | regex.ist_dot_char
@@ -1015,7 +1008,7 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 
 		// IST_CHAR_CLASS_*
 		if char_len == 1 && pc >= 0 {
-			if byte(char_tmp) == `[` {
+			if u8(char_tmp) == `[` {
 				cc_index, tmp, cc_type := re.parse_char_class(in_txt, i + 1)
 				if cc_index >= 0 {
 					// println("index: $cc_index str:${in_txt[i..i+tmp]}")
@@ -1037,7 +1030,7 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 		}
 
 		// OR
-		if char_len == 1 && pc > 0 && byte(char_tmp) == `|` {		
+		if char_len == 1 && pc > 0 && u8(char_tmp) == `|` {		
 			// OR as last operation is a syntax error
 			if i >= (in_txt.len-1) {
 				return regex.err_syntax_error, i
@@ -1054,7 +1047,7 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 
 		// ist_bsls_char
 		if char_len == 1 && pc >= 0 {
-			if byte(char_tmp) == `\\` {
+			if u8(char_tmp) == `\\` {
 				bsls_index, tmp := re.parse_bsls(in_txt, i)
 				// println("index: $bsls_index str:${in_txt[i..i+tmp]}")
 				if bsls_index >= 0 {
@@ -1086,7 +1079,6 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 		mut t := Token{}
 		t.ist = regex.ist_simple_char
 		t.ch = char_tmp
-		t.ch_len = byte(char_len)
 		t.rep_min = 1
 		t.rep_max = 1
 		row << t
@@ -1101,7 +1093,7 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 	row << t
 	//}
 
-	re.prog[level] = row
+	re.prog = row
 	return regex.compile_ok, i
 }
 
@@ -1199,7 +1191,7 @@ fn (re RE) get_query_int(mut res strings.Builder, level int) {
 	if level < 0 || level >= re.prog.len {
 		return
 	}
-	for c, tk in re.prog[level] {
+	for c, tk in re.prog {
 		ist := tk.ist
 /*
 		if ist == regex.ist_prog_end {
@@ -1233,7 +1225,7 @@ fn (re RE) get_query_int(mut res strings.Builder, level int) {
 
 		// char alone
 		else if ist == regex.ist_simple_char {
-			if byte(ist) in regex.bsls_escape_list {
+			if u8(ist) in regex.bsls_escape_list {
 				res.write_string('\\')
 			}
 			res.write_string('${tk.ch:c}')
@@ -1262,7 +1254,7 @@ fn (re RE) get_query_int(mut res strings.Builder, level int) {
 *
 ******************************************************************************/
 [direct_array_access]
-pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int, in_pc int, lu int, upc int) (int, int) {
+pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, in_pc int, lu int, upc int) (int, int) {
 	if re.debug > 1 {
 		unsafe{
 			println("txt:{${tos(in_txt, in_i)}}[${tos(in_txt+in_i, in_txt_len -in_i)}]")
@@ -1276,23 +1268,23 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 	mut i := in_i
 	mut pc := in_pc // program counter
 	mut rep := 0
-	mut tk := &re.prog[level][in_pc]
+	mut tk := &re.prog[in_pc]
 
 	//println("match_base lev:${level}")
 	
 	// first rune loaded
 	ch, char_len = re.get_runeb(in_txt, i)
 
-	for i < in_txt_len && pc < re.prog[level].len {
+	for i < in_txt_len && pc < re.prog.len {
 		// get token
-		tk = &re.prog[level][pc]
+		tk = &re.prog[pc]
 		
 		// println("ist: ${tk.ist:8x}")
 		// load the next rune
 		ch, char_len = re.get_runeb(in_txt, i)
 
 		if re.debug > 0 {
-			print("lvl: ${re.call_level:2}:${level:2} pc: ${pc:3}/${re.prog[level].len - 1:3} ")
+			print("lvl: ${re.call_level:2}:${level:2} pc: ${pc:3}/${re.prog.len - 1:3} ")
 			quant := get_debug_quantifier_string(tk, rep)
 			match tk.ist {
 				regex.ist_prog_end {
@@ -1311,7 +1303,7 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 					println("[CC  ] i:${i} neg:true ${i}: [${re.get_char_class(level, pc)}] == [${ch}] => ${cc_res} ${quant}")
 				}
 				regex.ist_bsls_char {
-					println("[BSLS] i:${i} [\\${tk.ch}] == [${ch}] => ${tk.validator(byte(ch))} ${quant}")
+					println("[BSLS] i:${i} [\\${tk.ch}] == [${ch}] => ${tk.validator(u8(ch))} ${quant}")
 				}
 				regex.ist_dot_char {
 					println("[DOT ] i:$i [${ch}] ${quant}")
@@ -1370,6 +1362,7 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 		else if tk.ist == regex.ist_simple_char {
 			if tk.ch == ch {
 				rep++
+				tk.rep = rep
 				i += char_len
 				if rep < tk.rep_min {
 					continue
@@ -1398,6 +1391,7 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 
 			if cc_res {
 				rep++
+				tk.rep = rep
 				i += char_len
 				if rep < tk.rep_min {
 					continue
@@ -1411,7 +1405,7 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 
 		// check bsls
 		else if tk.ist == regex.ist_bsls_char {
-			if tk.validator(byte(ch)) == true {
+			if tk.validator(u8(ch)) == true {
 				rep++
 				i += char_len
 				
@@ -1419,15 +1413,25 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 					continue
 				}
 				//println("ist_bsls_char max check $rep < $tk.rep_max")
-				if rep < tk.rep_max {	
-					/*
-					s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0 ,0)
-					println("ist_bsls_char inner res: $s $e level: $level")
-					if s >= 0 {
-						re.call_level--
-						return 0, e
+				if rep < tk.rep_max {
+					if re.prog[pc + 1].ist != regex.ist_prog_end {
+						mut tmp_buf := []int{len: re.prog.len}
+						for x in re.prog {
+							tmp_buf << x.rep
+						}
+						s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0 ,0)
+						println("ist_bsls_char inner res: $s $e level: $level")
+						if s >= 0 {
+							println("HERE good! end: ${e}")
+							return 0, e
+						}
+						for c,x in tmp_buf {
+							re.prog[c].rep = x
+						}
+					} else {
+						println("Next is PROG_END")
 					}
-					*/
+
 					continue
 				}
 				//println("ist_bsls_char match!")
@@ -1439,7 +1443,7 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 		// check dot metachar
 		else if tk.ist == regex.ist_dot_char {
 			//println("[DOT ] pc: ${level}:${pc} index:$i [${ch}] ${tk.rep} in {${tk.rep_min},${tk.rep_max}}")
-			if tk.rep_min == 0 && rep == 0 && re.prog[level][pc].ist != regex.ist_prog_end {
+			if tk.rep_min == 0 && rep == 0 && re.prog[pc].ist != regex.ist_prog_end {
 				s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, level, pc) 
 				if s >= 0 {
 					re.call_level--
@@ -1456,7 +1460,7 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 			
 			if rep < tk.rep_max {			
 				/*
-				if re.prog[level][pc].ist != regex.ist_prog_end {
+				if re.prog[pc].ist != regex.ist_prog_end {
 					s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, level, pc)
 					// println("ist_dot_char inner res: $s $e")
 					if s >= 0 {
@@ -1482,7 +1486,7 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 		if rep >= tk.rep_min && rep <= tk.rep_max {
 			pc++
 			// managing escaped OR
-			if pc > 0 && re.prog[level][pc-1].or_flag == true {
+			if pc > 0 && re.prog[pc-1].or_flag == true {
 				pc++
 			}
 			rep = 0
@@ -1497,7 +1501,7 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 		}
 
 		if re.debug > 2 {
-			println("lvl: ${re.call_level:2} pc: ${level:2}:${pc:3}/${re.prog[level].len - 1:3} NO MATCH")
+			println("lvl: ${re.call_level:2} pc: ${level:2}:${pc:3}/${re.prog.len - 1:3} NO MATCH")
 		}
 
 		re.call_level--
@@ -1505,11 +1509,11 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 	}
 
 	re.call_level--
-	//println("${i} of ${in_txt_len} PC:$pc of ${re.prog[level].len - 1}")
+	//println("${i} of ${in_txt_len} PC:$pc of ${re.prog.len - 1}")
 
 	
 	// Normal program end
-	if re.prog[level][pc].ist == regex.ist_prog_end {
+	if re.prog[pc].ist == regex.ist_prog_end {
 		println("END ist_prog_end")	
 		if level == 0 {
 			re.groups[0] = 0
@@ -1524,9 +1528,9 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 	}
 
 	// we are in the last token loop and the text run out
-	if i >= in_txt_len && re.prog[level][pc + 1].ist == regex.ist_prog_end{
-		if rep >= re.prog[level][pc].rep_min &&
-			rep <= re.prog[level][pc].rep_max 
+	if i >= in_txt_len && re.prog[pc + 1].ist == regex.ist_prog_end{
+		if rep >= re.prog[pc].rep_min &&
+			rep <= re.prog[pc].rep_max 
 		{
 			println("END last token loop")
 			if level == 0 {
@@ -1548,8 +1552,8 @@ pub fn (mut re RE) match_base(in_txt &byte, in_i int, in_txt_len int, level int,
 	if i >= in_txt_len {
 		println("END text run out")
 		mut tmp_pc := pc + 1
-		for re.prog[level][tmp_pc].ist != regex.ist_prog_end{
-			if re.prog[level][tmp_pc].rep_min > 0 {
+		for re.prog[tmp_pc].ist != regex.ist_prog_end{
+			if re.prog[tmp_pc].rep_min > 0 {
 				return regex.no_match_found, -1
 			}
 			tmp_pc++

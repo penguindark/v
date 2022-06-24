@@ -6,7 +6,7 @@ import strings
 pub fn new() RE {
 	// init regex
 	mut re := RE{}
-	re.prog = [][]Token{len: 1, init: []Token{len:16}} // max program length, can not be longer then the pattern
+	re.prog = []Token{len: 1} // max program length, can not be longer then the pattern
 	re.cc = []CharClass{len: max_code_len} // can not be more char class the the length of the pattern
 	
 	//re.group_stack = []int{len: re.group_max, init: -1}
@@ -35,7 +35,7 @@ pub fn regex_opt(pattern string) ?RE {
 	// init regex
 	mut re := RE{}
 	
-	re.prog = [][]Token{len: pattern.len/2 + 1, init: []Token{len:pattern.len}} // max program length, can not be longer then the pattern
+	re.prog = []Token{len: pattern.len/2 + 1} // max program length, can not be longer then the pattern
 	re.cc = []CharClass{len: pattern.len} // can not be more char class the the length of the pattern
 	
 	// compile the pattern

@@ -18,7 +18,7 @@ module regex
 pub fn regex_base(pattern string) (RE, int, int) {
 	// init regex
 	mut re := RE{}
-	re.prog = [][]Token{len: pattern.len + 1} // max program length, can not be longer then the pattern
+	re.prog = []Token{len: pattern.len + 1} // max program length, can not be longer then the pattern
 	re.cc = []CharClass{len: pattern.len} // can not be more char class the the length of the pattern
 
 	re_err, err_pos := re.impl_compile(pattern, 0, 0)
