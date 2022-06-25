@@ -235,6 +235,8 @@ mut:
 	group_neg bool // negation flag for the group, 0 => no negation > 0 => negataion
 	group_id  int = -1 // id of the group
 	jmp_pc    int = -1
+	group_start int = -1
+	group_end   int = -1
 
 	// section row index
 	row_i   int = -1 // row to execute if dot or group
@@ -455,7 +457,7 @@ fn (re RE) get_char_class(level int, pc int) string {
 }
 
 
-fn (re RE) check_char_class(level int, pc int, ch rune) bool {
+fn (re RE) check_char_class(pc int, ch rune) bool {
 	mut cc_i := re.prog[pc].cc_index
 	for cc_i >= 0 && cc_i < re.cc.len && re.cc[cc_i].cc_type != regex.cc_end {
 		if re.cc[cc_i].cc_type == regex.cc_bsls {
@@ -895,14 +897,12 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 				re.group_index[cgroup_name] = t.row_i
 			}
 			
-			re.groups_pc << row.len - 1
-
+			re.groups_pc[re.group_count]=row.len - 1
 			pc = pc + 1
+			
 			i = next_i
-			//println("pos: ${i}")
-			
+			//println("pos: ${i}")		
 			//println("res: ${res} res_pos: ${res_pos} lev: ${t.row_i}")
-			
 			continue
 		}
 
@@ -910,13 +910,16 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 		if char_len == 1 && pc >= 0 && u8(char_tmp) == `)` {
 			// println("Group end")
 			i = i + char_len
+
+			group_start_pc := re.groups_pc[re.group_count]
 			mut t := Token{}
 			t.ist = u32(0) | regex.ist_group_end
 			t.row_i = re.group_count
-			t.rep_min = row[re.groups_pc[re.group_count]].rep_min
-			t.rep_max = row[re.groups_pc[re.group_count]].rep_max
-			t.jmp_pc = re.groups_pc[re.group_count]
+			t.rep_min = row[group_start_pc].rep_min
+			t.rep_max = row[group_start_pc].rep_max
+			t.jmp_pc = group_start_pc
 			row << t
+			pc = pc + 1
 			continue
 		}
 
@@ -1108,10 +1111,12 @@ fn (mut re RE) compile_section(in_txt string, in_txt_pos int, level int) (int, i
 
 // compile return (return code, index) where index is the index of the error in the query string if return code is an error code
 fn (mut re RE) impl_compile(in_txt string, in_txt_pos int, level int) (int, int) {
+	re.groups_pc = []int{len:in_txt.len,init: -1}
 	res, res_pos := re.compile_section(in_txt, 0, 0)
 	// init Groups
 	re.groups = []int{len:(re.group_count + 1) * 2, init: -1 }
 	re.group_name = []string{len:(re.group_count + 1)}
+
 	for k,v in re.group_index {
 		re.group_name[v] = k
 	}
@@ -1222,14 +1227,12 @@ fn (re RE) get_query_int(mut res strings.Builder, level int) {
 		else if ist == regex.ist_bsls_char {
 			res.write_string('\\${tk.ch:1c}')
 			get_quantifier_string(mut res, tk)
-			//re.get_query_int(mut res, tk.row_i)
 		}
 
 		// ist_dot_char
 		else if ist == regex.ist_dot_char {
 			res.write_string('.')
 			get_quantifier_string(mut res, tk)
-			//re.get_query_int(mut res, tk.row_i)
 		}
 
 		// char alone
@@ -1263,8 +1266,8 @@ fn (re RE) get_query_int(mut res strings.Builder, level int) {
 * Matching
 *
 ******************************************************************************/
-[direct_array_access]
-pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, in_pc int, lu int, upc int) (int, int) {
+//[direct_array_access]
+pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, in_level int, in_pc int) (int, int) {
 	if re.debug > 1 {
 		unsafe{
 			println("txt:{${tos(in_txt, in_i)}}[${tos(in_txt+in_i, in_txt_len -in_i)}]")
@@ -1280,6 +1283,8 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 	mut rep := 0
 	mut tk := &re.prog[in_pc]
 
+	mut level := in_level
+
 	//println("match_base lev:${level}")
 	
 	// first rune loaded
@@ -1288,6 +1293,10 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 	for i < in_txt_len && pc < re.prog.len {
 		// get token
 		tk = &re.prog[pc]
+		// segment end, exit!
+		if tk.ist == regex.ist_prog_end {
+			break
+		}
 		
 		// println("ist: ${tk.ist:8x}")
 		// load the next rune
@@ -1305,11 +1314,11 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 				}
 				regex.ist_char_class_pos {
 					// check the CC
-					cc_res := re.check_char_class(level, pc, ch)
+					cc_res := re.check_char_class(pc, ch)
 					println("[CC  ] i:${i} neg:false ${i}: [${re.get_char_class(level, pc)}] == [${ch}] => ${cc_res} ${quant}")
 				}
 				regex.ist_char_class_neg {
-					cc_res := !re.check_char_class(level, pc, ch)
+					cc_res := !re.check_char_class(pc, ch)
 					println("[CC  ] i:${i} neg:true ${i}: [${re.get_char_class(level, pc)}] == [${ch}] => ${cc_res} ${quant}")
 				}
 				regex.ist_bsls_char {
@@ -1330,45 +1339,53 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 			}
 		}
 
-		// segment end, exit!
-		if tk.ist == regex.ist_prog_end {
-			break
-		}
-
 		// groups
 		if tk.ist == regex.ist_group_start {
 			println("ist_group_start")
+			tk.group_start = i
+			level = tk.row_i
 			rep = 0
 			pc++
 			continue
 		}
 		else if tk.ist == regex.ist_group_end {
 			println("ist_group_end ${tk.rep_min} ${tk.rep_max}")
+			tk.group_end = i
 			tk.rep++
 			rep = tk.rep
-			re.prog[tk.jmp_pc].rep = tk.rep
+			//re.prog[tk.jmp_pc].rep = tk.rep
 			
 			if tk.rep < tk.rep_min {
+				println("Group under minimum")
 				pc = tk.jmp_pc
+				rep = 0
 				continue
 			}
+
+			re.groups[level * 2] = re.prog[tk.jmp_pc].group_start
+			re.groups[level * 2 + 1] = i
+
 			if tk.rep < tk.rep_max {
 				if re.prog[pc + 1].ist != regex.ist_prog_end {
-					println("Check the rest")
+					println("Check the rest")	
 					mut tmp_buf := []int{len: re.prog.len}
-					for x in re.prog {
-						tmp_buf << x.rep
+					for c,x in re.prog {
+						tmp_buf[c] = x.rep
 					}
-					s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0 ,0)
+					s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1)					
 					if s >= 0 {
+						println("Good!!")
 						return 0, e
 					}
 					for c,x in tmp_buf {
 						re.prog[c].rep = x
 					}
+					
 				}
-				pc = tk.jmp_pc
+				pc = tk.jmp_pc - 1
 			}
+			println("[ ) ] HERE WE ARE pc: ${pc} rep:${rep} min:${tk.rep_min} max:${tk.rep_max}")
+			
 		}
 
 		// check rune alone
@@ -1396,7 +1413,7 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 			}
 
 			// check the CC
-			mut cc_res := re.check_char_class(level, pc, ch)
+			mut cc_res := re.check_char_class(pc, ch)
 			// invert the result if needed
 			if cc_neg {
 				cc_res = !cc_res
@@ -1412,10 +1429,10 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 				if rep < tk.rep_max {
 					if re.prog[pc + 1].ist != regex.ist_prog_end {
 						mut tmp_buf := []int{len: re.prog.len}
-						for x in re.prog {
-							tmp_buf << x.rep
+						for c,x in re.prog {
+							tmp_buf[c] = x.rep
 						}
-						s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0 ,0)
+						s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1)
 						if s >= 0 {
 							return 0, e
 						}
@@ -1441,11 +1458,12 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 				//println("ist_bsls_char max check $rep < $tk.rep_max")
 				if rep < tk.rep_max {
 					if re.prog[pc + 1].ist != regex.ist_prog_end {
+						println("Check the rest")
 						mut tmp_buf := []int{len: re.prog.len}
-						for x in re.prog {
-							tmp_buf << x.rep
+						for c,x in re.prog {
+							tmp_buf[c] = x.rep
 						}
-						s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0 ,0)
+						s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1)
 						if s >= 0 {
 							return 0, e
 						}
@@ -1458,6 +1476,7 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 				//println("ist_bsls_char match!")
 			} 
 			//else { println("ist_bsls_char FAILED") }
+			println("[BLSL] HERE WE ARE pc: ${pc} rep:${rep} min:${tk.rep_min} max:${tk.rep_max}")
 			
 		}
 
@@ -1466,10 +1485,10 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 			//println("[DOT ] pc: ${level}:${pc} index:$i [${ch}] ${tk.rep} in {${tk.rep_min},${tk.rep_max}}")
 			if tk.rep_min == 0 && rep == 0 && re.prog[pc].ist != regex.ist_prog_end {
 				mut tmp_buf := []int{len: re.prog.len}
-				for x in re.prog {
-					tmp_buf << x.rep
+				for c,x in re.prog {
+					tmp_buf[c] = x.rep
 				}
-				s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0, 0) 
+				s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1) 
 				if s >= 0 {
 					return s, e
 				}
@@ -1488,10 +1507,10 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 			if rep < tk.rep_max {			
 				if re.prog[pc + 1].ist != regex.ist_prog_end {
 					mut tmp_buf := []int{len: re.prog.len}
-					for x in re.prog {
-						tmp_buf << x.rep
+					for c,x in re.prog {
+						tmp_buf[c] = x.rep
 					}
-					s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1, 0, 0) 
+					s, e := re.match_base(in_txt, i, in_txt_len, level, pc + 1) 
 					if s >= 0 {
 						return s, e
 					}
@@ -1512,7 +1531,7 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 		//======================================
 		// Quantifier management
 		//======================================
-		//println("QM $rep of {${tk.rep_min},${tk.rep_max}}")
+		println("QM $rep of {${tk.rep_min},${tk.rep_max}}")
 		if rep >= tk.rep_min && rep <= tk.rep_max {
 			pc++
 			// managing escaped OR
@@ -1539,46 +1558,46 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 	}
 
 	re.call_level--
-	//println("${i} of ${in_txt_len} PC:$pc of ${re.prog.len - 1}")
+	println("ENDING: ${i} of ${in_txt_len} PC:$pc of ${re.prog.len - 1}")
 
 	
 	// Normal program end
 	if re.prog[pc].ist == regex.ist_prog_end {
-		println("END ist_prog_end")	
-		if level == 0 {
-			re.groups[0] = 0
-			re.groups[1] = i
-		} else if level > 0 {
-			if tk.group_capture == true {
-				re.groups[level * 2] = in_i	
-				re.groups[level * 2 + 1] = in_txt_len
-			}
-		}
+		println("END ist_prog_end")		
+		re.groups[0] = 0
+		re.groups[1] = i
 		return 0, i
 	}
 
 	// we are in the last token loop and the text run out
-	if i >= in_txt_len && re.prog[pc + 1].ist == regex.ist_prog_end{
-		if rep >= re.prog[pc].rep_min &&
-			rep <= re.prog[pc].rep_max 
-		{
-			println("END last token loop")
-			if level == 0 {
+	if i >= in_txt_len && (
+		re.prog[pc + 1].ist == regex.ist_prog_end ||
+		(pc+2 < re.prog.len && re.prog[pc + 1].ist == regex.ist_group_end && re.prog[pc + 2].ist == regex.ist_prog_end)
+
+	){
+		println("HERE END without text!")
+		println("END pc:${pc} rep:${rep} of {${tk.rep_min},${tk.rep_max}}")
+		println("END last token loop level:${level}")
+		
+		if re.prog[pc + 1].ist == regex.ist_group_end &&
+			re.prog[pc + 1].rep >= re.prog[pc + 1].rep_min && 
+			re.prog[pc + 1].rep <= re.prog[pc + 1].rep_max {
 				re.groups[0] = 0
 				re.groups[1] = i
-			} else if level > 0 {
-				if tk.group_capture == true {
-					re.groups[level * 2] = in_i	
-					re.groups[level * 2 + 1] = in_txt_len
-				}
-			}
-			
-			return 0, i
+				return 0,i
+		} else if re.prog[pc + 1].ist == regex.ist_prog_end &&
+			re.prog[pc].rep >= re.prog[pc].rep_min && 
+			re.prog[pc].rep <= re.prog[pc].rep_max {
+				re.groups[0] = 0
+				re.groups[1] = i
+				return 0,i
 		}
+		
 	}
 
 
 	// check if last instructions can match without text leftovers!
+/*
 	if i >= in_txt_len {
 		println("END text run out")
 		mut tmp_pc := pc + 1
@@ -1590,14 +1609,14 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, level int, i
 		}
 		return 0, i
 	}
-
+*/
 
 	return regex.no_match_found, -1
 }
 
 pub fn (mut re RE) match_string(in_txt string, in_i int) (int, int) {
 	re.call_level = -1
-	mut s, e := re.match_base(in_txt.str, in_i, in_txt.len, 0, 0, 0, 0)
+	mut s, e := re.match_base(in_txt.str, in_i, in_txt.len, 0, 0)
 
 	if s == regex.program_end_ok { s = 0 }
 
