@@ -1584,12 +1584,12 @@ pub fn (mut re RE) match_base(in_txt &u8, in_i int, in_txt_len int, in_level int
 		println("END pc:${pc} rep:${rep} of {${tk.rep_min},${tk.rep_max}}")
 		println("END last token loop level:${level}")
 
-		if level > 0 {
-			for c in 1..level {
-				println("$c")
-				re.groups[c * 2 + 1] = i
-			}
+		//println("Number of groups: ${re.group_count}")
+		for c in 1..re.group_count+1 {
+			//println("group filler: $c")
+			re.groups[c * 2 + 1] = in_txt_len
 		}
+		
 		
 		if re.prog[pc + 1].ist == regex.ist_group_end &&
 			re.prog[pc + 1].rep >= re.prog[pc + 1].rep_min && 
