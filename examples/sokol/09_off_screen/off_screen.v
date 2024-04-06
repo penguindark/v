@@ -18,7 +18,7 @@ import gg.m4
 import gx
 import math
 import sokol.gfx
-// import sokol.sgl
+import sokol.sgl
 import time
 
 const win_width = 800
@@ -39,6 +39,9 @@ mut:
 
 	// offscreen
 	offscreen_pass gfx.Pass
+
+	// display
+	display_pass gfx.Pass
 
 	// glsl
 	cube_pip_glsl gfx.Pipeline
@@ -109,6 +112,7 @@ fn update_text_texture(sg_img gfx.Image, w int, h int, buf byteptr) {
 
 // create the offscreen render pipeline
 fn offscreen_init(mut app App) {
+	//unsafe { vmemset(&pass_action, 0, int(sizeof(pass_action))) }
 	ws := gg.window_size_real_pixels()
 
 	// resusable image description	
@@ -145,9 +149,60 @@ fn offscreen_init(mut app App) {
 
  	offscreen_att := gfx.make_attachments(&att_desc)
 
- 	app.offscreen_pass = gfx.Pass{
- 		attachments: offscreen_att
+ 	// offscreen actions	
+ 	color_attachment_action := gfx.ColorAttachmentAction{
+ 		load_action: unsafe { gfx.LoadAction(C.SG_LOADACTION_CLEAR) } 
+		clear_value: gfx.Color{
+			r: 0.0
+			g: 0.0
+			b: 0.0
+			a: 0.0
+		}
  	}
+
+ 	depth_attachment_action := gfx.DepthAttachmentAction{
+        load_action: unsafe { gfx.LoadAction(C.SG_LOADACTION_CLEAR) } ,
+        store_action: unsafe { gfx.StoreAction(C.SG_STOREACTION_DONTCARE) }  ,
+        clear_value: 1.0
+    }
+
+ 	mut offscreen_pass_action := gfx.PassAction{
+ 		depth: depth_attachment_action
+ 	}
+ 	offscreen_pass_action.colors[0] = color_attachment_action
+
+ 	app.offscreen_pass = gfx.Pass{
+ 		attachments: offscreen_att,
+ 		action: offscreen_pass_action
+ 	}
+}
+
+fn display_init(mut app App) {
+    // display actions	
+ 	color_attachment_action := gfx.ColorAttachmentAction{
+ 		load_action: unsafe { gfx.LoadAction(C.SG_LOADACTION_CLEAR) } 
+		clear_value: gfx.Color{
+			r: 0.0
+			g: 0.0
+			b: 0.0
+			a: 0.0
+		}
+ 	}
+
+ 	depth_attachment_action := gfx.DepthAttachmentAction{
+        load_action: unsafe { gfx.LoadAction(C.SG_LOADACTION_CLEAR) } ,
+        //store_action: unsafe { gfx.StoreAction(C.SG_STOREACTION_DONTCARE) }  ,
+        clear_value: -1.0
+    }
+
+ 	mut display_pass_action := gfx.PassAction{
+ 		depth: depth_attachment_action
+ 	}
+
+ 	app.display_pass = gfx.Pass{
+ 		action: display_pass_action
+ 	}
+
 }
 
 /******************************************************************************
@@ -192,6 +247,9 @@ fn my_init(mut app App) {
 		free(tmp_txt)
 	}
 
+	// display init
+	display_init(mut app)
+
 	// offscreen init
 	offscreen_init(mut app)
 
@@ -200,6 +258,9 @@ fn my_init(mut app App) {
 	app.init_flag = true
 }
 
+/******************************************************************************
+* Draw functions
+******************************************************************************/
 fn draw_start_glsl(app App) {
 	if app.init_flag == false {
 		return
@@ -218,6 +279,29 @@ fn draw_end_glsl(app App) {
 	gfx.commit()
 }
 
+fn draw(app App){
+	if app.init_flag == false {
+		return
+	}
+	ws := gg.window_size_real_pixels()
+	app.gg.begin()
+	{
+		sgl.defaults()
+
+		// 2d triangle
+		sgl.viewport(0, 0, ws.width, ws.height, true)
+
+		sgl.defaults()
+		sgl.begin_triangles()
+		sgl.v2f_c3b(0.0, 0.5, 255, 0, 0)
+		sgl.v2f_c3b(-0.5, -0.5, 0, 0, 255)
+		sgl.v2f_c3b(0.5, -0.5, 0, 255, 0)
+		sgl.end()
+
+	}
+	app.gg.end()
+}
+
 fn frame(mut app App) {
 	// clear
 	mut color_action := gfx.ColorAttachmentAction{
@@ -234,9 +318,13 @@ fn frame(mut app App) {
 	pass := gg.create_default_pass(pass_action)
 	gfx.begin_pass(&pass)
 
+
 	draw_start_glsl(app)
 	//draw_cube_glsl_i(mut app)
+	
 	draw_end_glsl(app)
+
+	draw(app)
 	app.frame_count++
 }
 
