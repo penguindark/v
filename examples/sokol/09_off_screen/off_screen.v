@@ -293,6 +293,11 @@ fn draw(app App){
 
 		sgl.defaults()
 		sgl.begin_triangles()
+
+		sgl.v2f_c3b(-1.0, -1.0, 0, 0, 0)
+		sgl.v2f_c3b( 1.0, -1.0, 0, 0, 0)
+		sgl.v2f_c3b( 1.0,  1.0, 0, 0, 0)
+
 		sgl.v2f_c3b(0.0, 0.5, 255, 0, 0)
 		sgl.v2f_c3b(-0.5, -0.5, 0, 0, 255)
 		sgl.v2f_c3b(0.5, -0.5, 0, 255, 0)
@@ -303,6 +308,8 @@ fn draw(app App){
 }
 
 fn frame(mut app App) {
+	ws := gg.window_size_real_pixels()
+
 	// clear
 	mut color_action := gfx.ColorAttachmentAction{
 		load_action: .clear
@@ -318,13 +325,30 @@ fn frame(mut app App) {
 	pass := gg.create_default_pass(pass_action)
 	gfx.begin_pass(&pass)
 
-
 	draw_start_glsl(app)
 	//draw_cube_glsl_i(mut app)
-	
 	draw_end_glsl(app)
 
-	draw(app)
+
+//	app.gg.begin()
+//	sgl.viewport(0, 0, ws.width, ws.height, true)
+
+//	sgl.defaults()
+/*	
+	sgl.begin_triangles()
+	sgl.v3f_c3b(-100.0,  100.0, -2.0, 255,   0,   0)
+	sgl.v3f_c3b( 100.0,  100.0, -2.0,   0, 255,   0)
+	sgl.v3f_c3b(-100.0, -100.0, -2.0,   0,   0, 255)
+	sgl.end()
+*/
+//	app.gg.end()
+
+	
+
+	//draw(app)
+
+	
+	
 	app.frame_count++
 }
 
