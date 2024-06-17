@@ -60,7 +60,7 @@ by using any of the following commands in a terminal:
 * [Running a project folder](#running-a-project-folder-with-several-files)
 * [Comments](#comments)
 * [Functions](#functions)
-    * [Hoistings](#hoistings)
+    * [Hoisting](#hoisting)
     * [Returning multiple values](#returning-multiple-values)
 * [Symbol visibility](#symbol-visibility)
 * [Variables](#variables)
@@ -125,7 +125,9 @@ by using any of the following commands in a terminal:
     * [Dumping expressions at runtime](#dumping-expressions-at-runtime)
 * [Modules](#modules)
     * [Create modules](#create-modules)
+    * [Special considerations for project folders](#special-considerations-for-project-folders)
     * [init functions](#init-functions)
+    * [cleanup functions](#cleanup-functions)
 
 </td></tr>
 <tr><td width=33% valign=top>
@@ -338,7 +340,7 @@ Again, the type comes after the argument's name.
 Just like in Go and C, functions cannot be overloaded.
 This simplifies the code and improves maintainability and readability.
 
-### Hoistings
+### Hoisting
 
 Functions can be used before their declaration:
 `add` and `sub` are declared after `main`, but can still be called from `main`.
@@ -1267,37 +1269,49 @@ does not alter the parent:
 
 ```v
 mut a := [0, 1, 2, 3, 4, 5]
-mut b := a[2..4]
-b[0] = 7 // `b[0]` is referring to `a[2]`
-println(a) // `[0, 1, 7, 3, 4, 5]`
+
+// Create a slice, that reuses the *same memory* as the parent array
+// initially, without doing a new allocation:
+mut b := unsafe { a[2..4] } // the contents of `b`, reuses the memory, used by the contents of `a`.
+
+b[0] = 7 // Note that `b[0]` and `a[2]` refer to *the same element* in memory.
+println(a) // `[0, 1, 7, 3, 4, 5]` - changing `b[0]` above, changed `a[2]` too.
+
+// the content of `b` will get reallocated, to have room for the `9` element:
 b << 9
-// `b` has been reallocated and is now independent from `a`
-println(a) // `[0, 1, 7, 3, 4, 5]` - no change
-println(b) // `[7, 3, 9]`
+// The content of `b`, is now reallocated, and fully independent from the content of `a`.
+
+println(a) // `[0, 1, 7, 3, 4, 5]` - no change, since the content of `b` was reallocated,
+// to a larger block, before the appending.
+
+println(b) // `[7, 3, 9]` - the contents of `b`, after the reallocation, and appending of the `9`.
 ```
 
-Appending to the parent array may or may not make it independent from its child slices.
-The behaviour depends on the parent's capacity and is predictable:
+Appending to the parent array, may or may not make it independent from its child slices.
+The behaviour depends on the *parent's capacity* and is predictable:
 
 ```v
 mut a := []int{len: 5, cap: 6, init: 2}
-mut b := unsafe { a[1..4] }
+mut b := unsafe { a[1..4] } // the contents of `b` uses part of the same memory, that is used by `a` too
+
 a << 3
-// no reallocation - fits in `cap`
-b[2] = 13 // `a[3]` is modified
+// still no reallocation of `a`, since `a.len` still fits in `a.cap`
+b[2] = 13 // `a[3]` is modified, through the slice `b`.
+
 a << 4
-// a has been reallocated and is now independent from `b` (`cap` was exceeded)
+// the content of `a` has been reallocated now, and is independent from `b` (`cap` was exceeded by `len`)
 b[1] = 3 // no change in `a`
+
 println(a) // `[2, 2, 2, 13, 2, 3, 4]`
 println(b) // `[2, 3, 13]`
 ```
 
-You can call .clone() on the slice, if you do want to have an independent copy right away:
+You can call .clone() on the slice, if you *do* want to have an independent copy right away:
 
 ```v
 mut a := [0, 1, 2, 3, 4, 5]
 mut b := a[2..4].clone()
-b[0] = 7 // Note: `b[0]` is NOT referring to `a[2]`, as it would have been, without the .clone()
+b[0] = 7 // Note: `b[0]` is NOT referring to `a[2]`, as it would have been, without the `.clone()`
 println(a) // [0, 1, 2, 3, 4, 5]
 println(b) // [7, 3]
 ```
@@ -1590,7 +1604,7 @@ fn main() {
 		month: 12
 		day: 25
 	}
-	println(time.new_time(my_time).utc_string())
+	println(time.new(my_time).utc_string())
 	println('Century: ${my_time.century()}')
 }
 ```
@@ -2064,7 +2078,7 @@ from `low` up to *but not including* `high`.
 > This exclusive range notation and zero-based indexing follow principles of
 logical consistency and error reduction. As Edsger W. Dijkstra outlines in
 'Why Numbering Should Start at Zero'
-([EWD831](https://www.cs.utexas.edu/users/EWD/transcriptions/EWD08xx/EWD831.html)), 
+([EWD831](https://www.cs.utexas.edu/users/EWD/transcriptions/EWD08xx/EWD831.html)),
 zero-based indexing aligns the index with the preceding elements in a sequence,
 simplifying handling and minimizing errors, especially with adjacent subsequences.
 This logical and efficient approach shapes our language design, emphasizing clarity
@@ -3269,9 +3283,9 @@ fn main() {
 * You can create modules anywhere.
 * All modules are compiled statically into a single executable.
 
-### Special considerations
+### Special considerations for project folders
 
-For the top level project folder (the one that is compiled with v .), and *only*
+For the top level project folder (the one, compiled with `v .`), and *only*
 that folder, you can have several .v files, that may be mentioning different modules
 with `module main`, `module abc` etc
 
@@ -3285,7 +3299,7 @@ Note that in ordinary modules, all .v files must start with `module name_of_fold
 ### `init` functions
 
 If you want a module to automatically call some setup/initialization code when it is imported,
-you can use a module `init` function:
+you can define a module `init` function:
 
 ```v
 fn init() {
@@ -3293,8 +3307,24 @@ fn init() {
 }
 ```
 
-The `init` function cannot be public - it will be called automatically. This feature is
-particularly useful for initializing a C library.
+The `init` function cannot be public - it will be called automatically by V, *just once*, no matter
+how many times the module was imported in your program. This feature is particularly useful for
+initializing a C library.
+
+### `cleanup` functions
+
+If you want a module to automatically call some cleanup/deinitialization code, when your program
+ends, you can define a module `cleanup` function:
+
+```v
+fn cleanup() {
+	// your deinitialisation code here ...
+}
+```
+
+Just like the `init` function, the `cleanup` function for a module cannot be public - it will be
+called automatically, when your program ends, once per module, even if the module was imported
+transitively by other modules several times, in the reverse order of the init calls.
 
 ## Type Declarations
 
@@ -3955,6 +3985,11 @@ fn main() {
 	println(user.name) // "Charles"
 
 	user2 := repo.find_user_by_id2(10) or { return }
+
+	// To create an Option var directly:
+	my_optional_int := ?int(none)
+	my_optional_string := ?string(none)
+	my_optional_user := ?User(none)
 }
 ```
 
@@ -5514,6 +5549,24 @@ fn main() {
 	assert bf == BitField.read | .write
 	assert bf.all(.read | .write)
 	assert !bf.has(.other)
+	empty := BitField.zero()
+	assert empty.is_empty()
+	assert !empty.has(.read)
+	assert !empty.has(.write)
+	assert !empty.has(.other)
+	mut full := empty
+	full.set_all()
+	assert int(full) == 7 // 0x01 + 0x02 + 0x04
+	assert full == .read | .write | .other
+	mut v := full
+	v.clear(.read | .other)
+	assert v == .write
+	v.clear_all()
+	assert v == empty
+	assert BitField.read == BitField.from('read')!
+	assert BitField.other == BitField.from('other')!
+	assert BitField.write == BitField.from(2)!
+	assert BitField.zero() == BitField.from('')!
 }
 ```
 
@@ -5797,10 +5850,10 @@ fn main() {
 
 You can read [Enum](#enums) values and their attributes.
 
-```V
+```v
 enum Color {
-	red @[RED] // first attribute
-	blue @[BLUE] // second attribute
+	red  @[RED] // first attribute
+	blue  @[BLUE] // second attribute
 }
 
 fn main() {
@@ -5821,7 +5874,7 @@ fn main() {
 
 You can read [Struct](#structs) attributes.
 
-```V
+```v
 @[COLOR]
 struct Foo {
 	a int
@@ -5846,7 +5899,7 @@ fn main() {
 
 You can read variant types from [Sum type](#sum-types).
 
-```V
+```v
 type MySum = int | string
 
 fn main() {
@@ -5868,7 +5921,7 @@ fn main() {
 
 You can retrieve information about struct methods.
 
-```V
+```v
 struct Foo {
 }
 
@@ -5879,7 +5932,6 @@ fn (f Foo) test() int {
 fn (f Foo) test2() string {
 	return 'foo'
 }
-
 
 fn main() {
 	foo := Foo{}
@@ -6189,28 +6241,28 @@ See also [Cross Compilation](#cross-compilation).
 
 ## Debugger
 
-To use the native *V debugger*, add the `$dbg` statement to your source, where you 
+To use the native *V debugger*, add the `$dbg` statement to your source, where you
 want the debugger to be invoked.
 
-```V
+```v
 fn main() {
 	a := 1
-	$dbg
+	$dbg;
 }
 ```
 
-Running this V code, you will get the debugger REPL break when the execution 
+Running this V code, you will get the debugger REPL break when the execution
 reaches the `$dbg` statement.
 
 ```
 $ v run example.v
 Break on [main] main in example.v:3
-example.v:3 vdbg> 
+example.v:3 vdbg>
 ```
 
 At this point, execution is halted, and the debugger is now available.
 
-To see the available commands, type 
+To see the available commands, type
 ?, h or help. (Completion for commands works - Non-Windows only)
 
 ```
@@ -6276,7 +6328,7 @@ example.v:3 vdbg> l
 0005  }
 ```
 
-The default is read 3 lines before and 3 lines after, but you can 
+The default is read 3 lines before and 3 lines after, but you can
 pass a parameter to the command to read more lines, like `l 5`.
 
 Now, lets watch the variable changing on this loop.
@@ -6296,21 +6348,21 @@ i = 1 (int)
 
 `i` and it's value is automatically printed, because it is in the watch list.
 
-To repeat the last command issued, in this case the `c` command, 
+To repeat the last command issued, in this case the `c` command,
 just hit the *enter* key.
 
 ```
-example.v:3 vdbg> 
+example.v:3 vdbg>
 Break on [main] main in example.v:3
 i = 2 (int)
-example.v:3 vdbg> 
+example.v:3 vdbg>
 Break on [main] main in example.v:3
 i = 3 (int)
 example.v:3 vdbg>
 ```
 
 You can also see memory usage with `mem` or `memory` command, and
-check if the current context is an anon function (`anon?`), a method (`method?`) 
+check if the current context is an anon function (`anon?`), a method (`method?`)
 or a generic method (`generic?`) and clear the terminal window (`clear`).
 
 ## Call stack
@@ -6352,7 +6404,7 @@ example.v:5    |   > main.test
 
 ## Trace
 
-Another feature of `v.debug` is the possibility to add hook functions 
+Another feature of `v.debug` is the possibility to add hook functions
 before and after each function call.
 
 To enable this feature, add the `-d trace` switch when building or running
@@ -6968,7 +7020,7 @@ v -os linux .
 For Ubuntu/Debian based distributions:
 
 ```shell
-sudo apt-get install gcc-mingw-w64-x86-64
+sudo apt install gcc-mingw-w64-x86-64
 ```
 
 For Arch based distributions:
@@ -7679,4 +7731,5 @@ Assignment Operators
 +=   -=   *=   /=   %=
 &=   |=   ^=
 >>=  <<=  >>>=
+&&= ||=
 ```

@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 module token
 
-const orm_custom_operators = ['like']
+const orm_custom_operators = ['like', 'ilike']
 
 @[minify]
 pub struct Token {
@@ -67,6 +67,8 @@ pub enum Kind {
 	right_shift_assign // <<=
 	left_shift_assign // >>=
 	unsigned_right_shift_assign // >>>=
+	boolean_and_assign // &&=
+	boolean_or_assign // ||=
 	lcbr // {
 	rcbr // }
 	lpar // (
@@ -118,6 +120,7 @@ pub enum Kind {
 	key_return
 	key_select
 	key_like
+	key_ilike
 	key_sizeof
 	key_isreftype
 	key_likely
@@ -185,7 +188,7 @@ pub enum AtKind {
 
 pub const assign_tokens = [Kind.assign, .plus_assign, .minus_assign, .mult_assign, .div_assign,
 	.xor_assign, .mod_assign, .or_assign, .and_assign, .right_shift_assign, .left_shift_assign,
-	.unsigned_right_shift_assign]
+	.unsigned_right_shift_assign, .boolean_and_assign, .boolean_or_assign]
 
 pub const valid_at_tokens = ['@VROOT', '@VMODROOT', '@VEXEROOT', '@FN', '@METHOD', '@MOD', '@STRUCT',
 	'@VEXE', '@FILE', '@LINE', '@COLUMN', '@VHASH', '@VCURRENTHASH', '@VMOD_FILE', '@VMODHASH',
@@ -260,6 +263,8 @@ fn build_token_str() []string {
 	s[Kind.right_shift_assign] = '>>='
 	s[Kind.unsigned_right_shift_assign] = '>>>='
 	s[Kind.left_shift_assign] = '<<='
+	s[Kind.boolean_or_assign] = '||='
+	s[Kind.boolean_and_assign] = '&&='
 	s[Kind.lcbr] = '{'
 	s[Kind.rcbr] = '}'
 	s[Kind.lpar] = '('
@@ -327,6 +332,7 @@ fn build_token_str() []string {
 	s[Kind.key_match] = 'match'
 	s[Kind.key_select] = 'select'
 	s[Kind.key_like] = 'like'
+	s[Kind.key_ilike] = 'ilike'
 	s[Kind.key_none] = 'none'
 	s[Kind.key_nil] = 'nil'
 	s[Kind.key_offsetof] = '__offsetof'
@@ -451,6 +457,7 @@ pub fn build_precedences() []Precedence {
 	p[Kind.gt] = .eq
 	p[Kind.ge] = .eq
 	p[Kind.key_like] = .eq
+	p[Kind.key_ilike] = .eq
 	// `=` | `+=` | ...
 	p[Kind.assign] = .assign
 	p[Kind.plus_assign] = .assign
@@ -465,6 +472,8 @@ pub fn build_precedences() []Precedence {
 	p[Kind.unsigned_right_shift_assign] = .assign
 	p[Kind.mult_assign] = .assign
 	p[Kind.xor_assign] = .assign
+	p[Kind.boolean_or_assign] = .assign
+	p[Kind.boolean_and_assign] = .assign
 	p[Kind.key_in] = .in_as
 	p[Kind.not_in] = .in_as
 	p[Kind.key_as] = .in_as
@@ -522,7 +531,7 @@ pub fn (kind Kind) is_prefix() bool {
 pub fn (kind Kind) is_infix() bool {
 	return kind in [.plus, .minus, .mod, .mul, .div, .eq, .ne, .gt, .lt, .key_in, .key_as, .ge,
 		.le, .logical_or, .xor, .not_in, .key_is, .not_is, .and, .dot, .pipe, .amp, .left_shift,
-		.right_shift, .unsigned_right_shift, .arrow, .key_like]
+		.right_shift, .unsigned_right_shift, .arrow, .key_like, .key_ilike]
 }
 
 @[inline]
@@ -580,6 +589,8 @@ pub fn kind_to_string(k Kind) string {
 		.right_shift_assign { 'right_shift_assign' }
 		.left_shift_assign { 'left_shift_assign' }
 		.unsigned_right_shift_assign { 'unsigned_right_shift_assign' }
+		.boolean_and_assign { 'boolean_and_assign' }
+		.boolean_or_assign { 'boolean_or_assign' }
 		.lcbr { 'lcbr' }
 		.rcbr { 'rcbr' }
 		.lpar { 'lpar' }
@@ -630,6 +641,7 @@ pub fn kind_to_string(k Kind) string {
 		.key_return { 'key_return' }
 		.key_select { 'key_select' }
 		.key_like { 'key_like' }
+		.key_ilike { 'key_ilike' }
 		.key_sizeof { 'key_sizeof' }
 		.key_isreftype { 'key_isreftype' }
 		.key_likely { 'key_likely' }
@@ -703,6 +715,8 @@ pub fn kind_from_string(s string) !Kind {
 		'right_shift_assign' { .right_shift_assign }
 		'left_shift_assign' { .left_shift_assign }
 		'unsigned_right_shift_assign' { .unsigned_right_shift_assign }
+		'boolean_and_assign' { .boolean_and_assign }
+		'boolean_or_assign' { .boolean_or_assign }
 		'lcbr' { .lcbr }
 		'rcbr' { .rcbr }
 		'lpar' { .lpar }
@@ -789,6 +803,8 @@ pub fn assign_op_to_infix_op(op Kind) Kind {
 		.right_shift_assign { .right_shift }
 		.unsigned_right_shift_assign { .unsigned_right_shift }
 		.left_shift_assign { .left_shift }
+		.boolean_and_assign { .and }
+		.boolean_or_assign { .logical_or }
 		else { ._end_ }
 	}
 }

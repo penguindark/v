@@ -212,7 +212,7 @@ fn (mut g Gen) gen_fn_decl(node &ast.FnDecl, skip bool) {
 		g.definitions.writeln(';')
 	}
 
-	g.write_v_source_line_info(node.pos)
+	g.write_v_source_line_info_stmt(node)
 	fn_attrs := g.write_fn_attrs(node.attrs)
 	// Live
 	is_livefn := node.attrs.contains('live')
@@ -351,8 +351,13 @@ fn (mut g Gen) gen_fn_decl(node &ast.FnDecl, skip bool) {
 			g.write('${type_name} no_impl_${name}(')
 		}
 		if is_liveshared {
-			g.definitions.write_string('${type_name} ${impl_fn_name}(')
-			g.write('${type_name} ${impl_fn_name}(')
+			if g.pref.os == .windows {
+				g.definitions.write_string('VV_EXPORTED_SYMBOL ${type_name} ${impl_fn_name}(')
+				g.write('VV_EXPORTED_SYMBOL ${type_name} ${impl_fn_name}(')
+			} else {
+				g.definitions.write_string('${type_name} ${impl_fn_name}(')
+				g.write('${type_name} ${impl_fn_name}(')
+			}
 		}
 	} else {
 		if !(node.is_pub || g.pref.is_debug) {
@@ -885,7 +890,7 @@ fn (mut g Gen) call_expr(node ast.CallExpr) {
 		}
 	}
 	if node.is_method && !node.is_field {
-		if node.name == 'writeln' && g.pref.experimental && node.args.len > 0
+		if g.pref.experimental && node.args.len > 0 && node.name == 'writeln'
 			&& node.args[0].expr is ast.StringInterLiteral
 			&& g.table.sym(node.receiver_type).name == 'strings.Builder' {
 			g.string_inter_literal_sb_optimized(node)
@@ -1050,11 +1055,13 @@ fn (mut g Gen) gen_array_method_call(node ast.CallExpr, left_type ast.Type) bool
 			g.gen_array_all(node)
 			return true
 		}
-		'delete', 'drop' {
+		'delete', 'drop', 'delete_last' {
 			g.write('array_${node.name}(')
 			g.gen_arg_from_type(left_type, node.left)
-			g.write(', ')
-			g.expr(node.args[0].expr)
+			if node.name != 'delete_last' {
+				g.write(', ')
+				g.expr(node.args[0].expr)
+			}
 			g.write(')')
 			return true
 		}
@@ -1109,6 +1116,9 @@ fn (mut g Gen) gen_to_str_method_call(node ast.CallExpr) bool {
 					rec_type = cast_sym.info.types[g.aggregate_type_idx]
 				}
 				g.gen_expr_to_string(left_node, rec_type)
+				return true
+			} else if left_node.or_expr.kind == .propagate_option {
+				g.gen_expr_to_string(left_node, g.unwrap_generic(node.left_type))
 				return true
 			}
 		}
@@ -1176,10 +1186,10 @@ fn (mut g Gen) resolve_comptime_args(func ast.Fn, mut node_ ast.CallExpr, concre
 			} else {
 				func.params[offset + i]
 			}
-			k++
 			if !param.typ.has_flag(.generic) {
 				continue
 			}
+			k++
 			param_typ := param.typ
 			if mut call_arg.expr is ast.Ident {
 				if mut call_arg.expr.obj is ast.Var {
@@ -1281,6 +1291,14 @@ fn (mut g Gen) resolve_comptime_args(func ast.Fn, mut node_ ast.CallExpr, concre
 					comptime_args[k] = comptime_args[k].deref()
 					if param_typ.nr_muls() > 0 && comptime_args[k].nr_muls() > 0 {
 						comptime_args[k] = comptime_args[k].set_nr_muls(0)
+					}
+				} else if mut call_arg.expr.right is ast.Ident {
+					mut ctyp := g.comptime.get_comptime_var_type(call_arg.expr.right)
+					if ctyp != ast.void_type {
+						comptime_args[k] = ctyp
+						if param_typ.nr_muls() > 0 && comptime_args[k].nr_muls() > 0 {
+							comptime_args[k] = comptime_args[k].set_nr_muls(0)
+						}
 					}
 				}
 			} else if mut call_arg.expr is ast.ComptimeSelector {
@@ -2552,6 +2570,9 @@ fn (mut g Gen) ref_or_deref_arg(arg ast.CallArg, expected_type ast.Type, lang as
 					}
 					if atype.has_flag(.generic) || arg.expr is ast.StructInit {
 						g.write('(voidptr)&/*qq*/')
+					} else if arg.expr is ast.None {
+						g.expr_with_opt(arg.expr, arg_typ, expected_type)
+						return
 					} else {
 						needs_closing = true
 						if arg_typ_sym.kind in [.sum_type, .interface_] {

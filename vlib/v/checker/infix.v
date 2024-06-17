@@ -264,14 +264,16 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 			left_sym = c.table.sym(unwrapped_left_type)
 			unwrapped_right_type := c.unwrap_generic(right_type)
 			right_sym = c.table.sym(unwrapped_right_type)
-			if mut right_sym.info is ast.Alias && right_sym.info.language != .c
+			if mut right_sym.info is ast.Alias && (right_sym.info.language != .c
 				&& c.mod == c.table.type_to_str(unwrapped_right_type).split('.')[0]
-				&& c.table.sym(right_sym.info.parent_type).is_primitive() {
+				&& (c.table.sym(right_sym.info.parent_type).is_primitive()
+				|| c.table.sym(right_sym.info.parent_type).kind == .enum_)) {
 				right_sym = c.table.sym(right_sym.info.parent_type)
 			}
-			if mut left_sym.info is ast.Alias && left_sym.info.language != .c
+			if mut left_sym.info is ast.Alias && (left_sym.info.language != .c
 				&& c.mod == c.table.type_to_str(unwrapped_left_type).split('.')[0]
-				&& c.table.sym(left_sym.info.parent_type).is_primitive() {
+				&& (c.table.sym(left_sym.info.parent_type).is_primitive()
+				|| c.table.sym(left_sym.info.parent_type).kind == .enum_)) {
 				left_sym = c.table.sym(left_sym.info.parent_type)
 			}
 
@@ -287,8 +289,8 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 					} else {
 						return_type = left_type
 					}
-				} else if left_final_sym.has_method(node.op.str()) {
-					if method := left_final_sym.find_method(node.op.str()) {
+				} else if left_final_sym.has_method_with_generic_parent(node.op.str()) {
+					if method := left_final_sym.find_method_with_generic_parent(node.op.str()) {
 						return_type = method.return_type
 					} else {
 						return_type = left_type
@@ -329,6 +331,12 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 							left_right_pos)
 					}
 				}
+			}
+
+			if ((unwrapped_left_type.is_ptr() && !node.left.is_auto_deref_var())
+				|| (unwrapped_right_type.is_ptr() && !node.right.is_auto_deref_var()))
+				&& node.op !in [.plus, .minus] {
+				c.error('infix `${node.op}` is not defined for pointer values', left_right_pos)
 			}
 
 			if !c.pref.translated && left_sym.kind in [.array, .array_fixed, .map, .struct_] {
@@ -427,7 +435,27 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 					c.check_div_mod_by_zero(node.right, node.op)
 				}
 
-				return_type = promoted_type
+				left_sym = c.table.sym(unwrapped_left_type)
+				right_sym = c.table.sym(unwrapped_right_type)
+				if left_sym.info is ast.Alias
+					&& c.table.sym(left_sym.info.parent_type).is_primitive() {
+					if left_sym.has_method(node.op.str()) {
+						if method := left_sym.find_method(node.op.str()) {
+							return_type = method.return_type
+						}
+					}
+				} else if right_sym.info is ast.Alias
+					&& c.table.sym(right_sym.info.parent_type).is_primitive() {
+					if right_sym.has_method(node.op.str()) {
+						if method := right_sym.find_method(node.op.str()) {
+							return_type = method.return_type
+						}
+					}
+				}
+				return_sym := c.table.sym(return_type)
+				if return_sym.info !is ast.Alias {
+					return_type = promoted_type
+				}
 			}
 		}
 		.gt, .lt, .ge, .le {
@@ -510,6 +538,11 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 			}
 		}
 		.key_like {
+			node.promoted_type = ast.bool_type
+
+			return c.check_like_operator(node)
+		}
+		.key_ilike {
 			node.promoted_type = ast.bool_type
 
 			return c.check_like_operator(node)
@@ -726,10 +759,10 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 		}
 		.and, .logical_or {
 			if !c.pref.translated && !c.file.is_translated {
-				if node.left_type != ast.bool_type_idx {
+				if left_final_sym.kind != .bool {
 					c.error('left operand for `${node.op}` is not a boolean', node.left.pos())
 				}
-				if node.right_type != ast.bool_type_idx {
+				if right_final_sym.kind != .bool {
 					c.error('right operand for `${node.op}` is not a boolean', node.right.pos())
 				}
 			}
@@ -742,6 +775,18 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 			}
 		}
 		else {}
+	}
+	// Do an ambiguous expression check for << >> and &, since they all have the same precedence (unlike in C)
+	if !c.is_builtin_mod && node.op in [.amp, .left_shift, .right_shift] {
+		if !c.mod.starts_with('math') { // TODO fix all warnings in math
+			if mut node.left is ast.InfixExpr {
+				if node.left.op != node.op && node.left.op in [.amp, .left_shift, .right_shift] {
+					// for example: `(a << b) & c` instead of `a << b & c`
+					c.note('ambiguous expression. use `()` to ensure correct order of operations',
+						node.pos)
+				}
+			}
+		}
 	}
 	// TODO: Absorb this block into the above single side check block to accelerate.
 	if left_type == ast.bool_type && node.op !in [.eq, .ne, .logical_or, .and] {
@@ -829,6 +874,10 @@ fn (mut c Checker) infix_expr(mut node ast.InfixExpr) ast.Type {
 					left_right_pos)
 			}
 		}
+	}
+	if node.op == .plus && c.pref.warn_about_allocs && left_type == ast.string_type_idx
+		&& right_type == ast.string_type_idx {
+		c.warn_alloc('string concatenation', node.pos)
 	}
 	/*
 	if (node.left is ast.InfixExpr && node.left.op == .inc) ||

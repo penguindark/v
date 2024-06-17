@@ -15,8 +15,6 @@ import v.pkgconfig
 import v.transformer
 import v.comptime
 
-const int_min = int(0x80000000)
-const int_max = int(0x7FFFFFFF)
 // prevent stack overflows by restricting too deep recursion:
 const expr_level_cutoff_limit = 40
 const stmt_level_cutoff_limit = 40
@@ -107,7 +105,7 @@ mut:
 	cur_orm_ts                       ast.TypeSymbol
 	cur_anon_fn                      &ast.AnonFn = unsafe { nil }
 	vmod_file_content                string     // needed for @VMOD_FILE, contents of the file, *NOT its path**
-	loop_label                       string     // set when inside a labelled for loop
+	loop_labels                      []string   // filled, when inside labelled for loops: `a_label: for x in 0..10 {`
 	vweb_gen_types                   []ast.Type // vweb route checks
 	timers                           &util.Timers = util.get_timers()
 	comptime_info_stack              []comptime.ComptimeInfo // stores the values from the above on each $for loop, to make nesting them easier
@@ -137,6 +135,7 @@ mut:
 	orm_table_fields  map[string][]ast.StructField // known table structs
 	//
 	v_current_commit_hash string // same as old C.V_CURRENT_COMMIT_HASH
+	assign_stmt_attr      string // for `x := [1,2,3] @[freed]`
 }
 
 pub fn new_checker(table &ast.Table, pref_ &pref.Preferences) &Checker {
@@ -184,7 +183,7 @@ fn (mut c Checker) reset_checker_state_at_start_of_new_file() {
 	c.inside_sql = false
 	c.cur_orm_ts = ast.TypeSymbol{}
 	c.prevent_sum_type_unwrapping_once = false
-	c.loop_label = ''
+	c.loop_labels = []
 	c.using_new_err_struct = false
 	c.inside_selector_expr = false
 	c.inside_interface_deref = false
@@ -708,6 +707,8 @@ and use a reference to the sum type instead: `var := &${node.name}(${variant_nam
 					c.error('sum type `${node.name}` cannot be defined recursively', variant.pos)
 				}
 			}
+		} else if variant.typ.has_flag(.result) {
+			c.error('sum type cannot hold a Result type', variant.pos)
 		}
 		c.check_any_type(variant.typ, sym, variant.pos)
 
@@ -1056,7 +1057,8 @@ fn (mut c Checker) type_implements(typ ast.Type, interface_type ast.Type, pos to
 		inter_sym.methods
 	}
 	// voidptr is an escape hatch, it should be allowed to be passed
-	if utyp != ast.voidptr_type && utyp != ast.nil_type {
+	if utyp != ast.voidptr_type && utyp != ast.nil_type && !(interface_type.has_flag(.option)
+		&& utyp == ast.none_type) {
 		mut are_methods_implemented := true
 
 		// Verify methods
@@ -1126,7 +1128,8 @@ fn (mut c Checker) type_implements(typ ast.Type, interface_type ast.Type, pos to
 				}
 			}
 		}
-		if utyp != ast.voidptr_type && utyp != ast.nil_type && !inter_sym.info.types.contains(utyp) {
+		if utyp != ast.voidptr_type && utyp != ast.nil_type && utyp != ast.none_type
+			&& !inter_sym.info.types.contains(utyp) {
 			inter_sym.info.types << utyp
 		}
 		if !inter_sym.info.types.contains(ast.voidptr_type) {
@@ -1308,7 +1311,8 @@ fn (mut c Checker) check_or_expr(node ast.OrExpr, ret_type ast.Type, expr_return
 		// allow `f() or {}`
 		return
 	}
-	mut last_stmt := node.stmts.last()
+	mut valid_stmts := node.stmts.filter(it !is ast.SemicolonStmt)
+	mut last_stmt := if valid_stmts.len > 0 { valid_stmts.last() } else { node.stmts.last() }
 	c.check_or_last_stmt(mut last_stmt, ret_type, expr_return_type.clear_option_and_result())
 }
 
@@ -1434,8 +1438,10 @@ fn (mut c Checker) selector_expr(mut node ast.SelectorExpr) ast.Type {
 
 	using_new_err_struct_save := c.using_new_err_struct
 	// TODO: remove; this avoids a breaking change in syntax
-	if '${node.expr}' == 'err' {
-		c.using_new_err_struct = true
+	if node.expr is ast.Ident {
+		if node.expr.str() == 'err' {
+			c.using_new_err_struct = true
+		}
 	}
 
 	// T.name, typeof(expr).name
@@ -1542,7 +1548,7 @@ fn (mut c Checker) selector_expr(mut node ast.SelectorExpr) ast.Type {
 			return ast.u32_type
 		}
 	}
-	mut unknown_field_msg := 'type `${sym.name}` has no field named `${field_name}`'
+	mut unknown_field_msg := ''
 	mut has_field := false
 	mut field := ast.StructField{}
 	if field_name.len > 0 && field_name[0].is_capital() && sym.info is ast.Struct
@@ -1689,6 +1695,9 @@ fn (mut c Checker) selector_expr(mut node ast.SelectorExpr) ast.Type {
 			c.error('`${unwrapped_sym.name}` has no property `${node.field_name}`', node.pos)
 		}
 	} else {
+		if unknown_field_msg == '' {
+			unknown_field_msg = 'type `${sym.name}` has no field named `${field_name}`'
+		}
 		if sym.info is ast.Struct {
 			if c.smartcast_mut_pos != token.Pos{} {
 				c.note('smartcasting requires either an immutable value, or an explicit mut keyword before the value',
@@ -1777,12 +1786,8 @@ fn (mut c Checker) const_decl(mut node ast.ConstDecl) {
 		// Check for int overflow
 		if field.typ == ast.int_type {
 			if mut field.expr is ast.IntegerLiteral {
-				mut is_large := field.expr.val.len > 13
-				if !is_large && field.expr.val.len > 8 {
-					val := field.expr.val.i64()
-					is_large = val > checker.int_max || val < checker.int_min
-				}
-				if is_large {
+				val := field.expr.val.i64()
+				if overflows_i32(val) {
 					c.error('overflow in implicit type `int`, use explicit type casting instead',
 						field.expr.pos)
 				}
@@ -2010,16 +2015,15 @@ fn (mut c Checker) check_enum_field_integer_literal(expr ast.IntegerLiteral, is_
 }
 
 @[inline]
-fn (mut c Checker) check_loop_label(label string, pos token.Pos) {
-	if label.len == 0 {
-		// ignore
+fn (mut c Checker) check_loop_labels(label string, pos token.Pos) {
+	if label == '' {
 		return
 	}
-	if c.loop_label.len != 0 {
-		c.error('nesting of labelled `for` loops is not supported', pos)
+	if label in c.loop_labels {
+		c.error('the loop label was already defined before', pos)
 		return
 	}
-	c.loop_label = label
+	c.loop_labels << label
 }
 
 fn (mut c Checker) stmt(mut node ast.Stmt) {
@@ -2226,13 +2230,21 @@ fn (mut c Checker) branch_stmt(node ast.BranchStmt) {
 		}
 	}
 	if node.label.len > 0 {
-		if node.label != c.loop_label {
+		if node.label !in c.loop_labels {
 			c.error('invalid label name `${node.label}`', node.pos)
 		}
 	}
 }
 
 fn (mut c Checker) global_decl(mut node ast.GlobalDecl) {
+	required_args_attr := ['_linker_section']
+	for attr_name in required_args_attr {
+		if attr := node.attrs.find_first(attr_name) {
+			if attr.arg == '' {
+				c.error('missing argument for @[${attr_name}] attribute', attr.pos)
+			}
+		}
+	}
 	for mut field in node.fields {
 		c.check_valid_snake_case(field.name, 'global name', field.pos)
 		if field.name in c.global_names {
@@ -2447,6 +2459,11 @@ fn (mut c Checker) hash_stmt(mut node ast.HashStmt) {
 			}
 		}
 		'pkgconfig' {
+			if c.pref.output_cross_c {
+				// do not add any flags, since we do not know what the target platform is for the cross platform builds
+				// and it is better to be as conservative as possible
+				return
+			}
 			args := if node.main.contains('--') {
 				node.main.split(' ')
 			} else {
@@ -2594,7 +2611,10 @@ fn (mut c Checker) stmts_ending_with_expression(mut stmts []ast.Stmt) {
 			}
 		}
 		c.stmt(mut stmt)
-		if stmt is ast.GotoLabel {
+		if !c.inside_anon_fn && c.in_for_count > 0 && stmt is ast.BranchStmt
+			&& stmt.kind in [.key_continue, .key_break] {
+			c.scope_returns = true
+		} else if stmt is ast.GotoLabel {
 			unreachable = token.Pos{
 				line_nr: -1
 			}
@@ -3228,7 +3248,7 @@ fn (mut c Checker) cast_expr(mut node ast.CastExpr) ast.Type {
 		tt := c.table.type_to_str(to_type)
 		c.warn('casting `${ft}` to `${tt}` is only allowed in `unsafe` code', node.pos)
 	} else if from_sym.kind == .array_fixed && !from_type.is_ptr() {
-		if !c.pref.translated && !c.file.is_translated {
+		if !c.pref.translated && !c.file.is_translated && !c.inside_unsafe {
 			c.warn('cannot cast a fixed array (use e.g. `&arr[0]` instead)', node.pos)
 		}
 	} else if final_from_sym.kind == .string && final_to_sym.is_number()
@@ -3386,9 +3406,14 @@ fn (mut c Checker) cast_expr(mut node ast.CastExpr) ast.Type {
 			if enum_decl := c.table.enum_decls[to_sym.name] {
 				mut in_range := false
 				if enum_decl.is_flag {
-					// if a flag enum has 4 variants, the maximum possible value would have all 4 flags set (0b1111)
-					max_val := (u64(1) << enum_decl.fields.len) - 1
-					in_range = node_val >= 0 && u64(node_val) <= max_val
+					if enum_decl.fields.len == 64 {
+						// for 64 fields, just use max_u64 and avoid UB:
+						in_range = node_val >= 0 && u64(node_val) <= max_u64
+					} else {
+						// if a flag enum has 4 variants, the maximum possible value would have all 4 flags set (0b1111)
+						max_val := (u64(1) << enum_decl.fields.len) - 1
+						in_range = node_val >= 0 && u64(node_val) <= max_val
+					}
 				} else {
 					mut enum_val := i64(0)
 
@@ -3419,6 +3444,10 @@ fn (mut c Checker) cast_expr(mut node ast.CastExpr) ast.Type {
 			c.add_error_detail('use ${c.table.type_to_str(node.typ)}.from_string(${node.expr}) instead')
 			c.error('cannot cast `string` to `enum`', node.pos)
 		}
+	}
+
+	if c.pref.warn_about_allocs && to_sym.info is ast.Interface {
+		c.warn_alloc('cast to interface', node.pos)
 	}
 	node.typname = c.table.sym(node.typ).name
 	return node.typ
@@ -5057,9 +5086,9 @@ fn (mut c Checker) fail_if_stack_struct_action_outside_unsafe(mut ident ast.Iden
 			sym := c.table.sym(obj.typ.set_nr_muls(0))
 			if !sym.is_heap() && !c.pref.translated && !c.file.is_translated {
 				suggestion := if sym.kind == .struct_ {
-					'declaring `${sym.name}` as `[heap]`'
+					'declaring `${sym.name}` as `@[heap]`'
 				} else {
-					'wrapping the `${sym.name}` object in a `struct` declared as `[heap]`'
+					'wrapping the `${sym.name}` object in a `struct` declared as `@[heap]`'
 				}
 				c.error('`${ident.name}` cannot be ${failed_action} outside `unsafe` blocks as it might refer to an object stored on stack. Consider ${suggestion}.',
 					ident.pos)

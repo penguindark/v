@@ -245,7 +245,9 @@ fn vweb_tmpl_${fn_name}() string {
 			// Remove new line byte
 			source.go_back(1)
 			source.writeln(parser.tmpl_str_end)
-			source.writeln(' } else { ')
+			pos := line.index('@else') or { continue }
+			source.writeln('}' + line[pos + 1..] + '{')
+			// source.writeln(' } else { ')
 			source.writeln(tmpl_str_start)
 			continue
 		}
@@ -256,28 +258,6 @@ fn vweb_tmpl_${fn_name}() string {
 			source.writeln(tmpl_str_start)
 			continue
 		}
-		// @foo => ${foo}
-		/*
-		if line.contains('@') {
-			mut pos := line.index('@') or { 0 }
-			if line.len > pos + 1 && line[pos + 1].is_letter() {
-				if line.contains('img') {
-					start := pos + 1
-					for pos < line.len && line[pos] != `)` {
-						pos++
-					}
-					source.write_string('\${')
-					source.write_string(line[start..pos + 1])
-					source.write_string('}')
-					println(source.str())
-					continue
-
-					// println('@@@ ${line}')
-					// println('${line}')
-				}
-			}
-		}
-		*/
 		if state == .simple {
 			// by default, just copy 1:1
 			source.writeln(insert_template_code(fn_name, tmpl_str_start, line))
@@ -352,8 +332,28 @@ fn vweb_tmpl_${fn_name}() string {
 			}
 			else {}
 		}
-		// by default, just copy 1:1
-		source.writeln(insert_template_code(fn_name, tmpl_str_start, line))
+
+		if pos := line.index('%') {
+			// %translation_key => ${tr('translation_key')}
+			mut line_ := line
+			if pos + 1 < line.len && line[pos + 1].is_letter() { //|| line[pos + 1] == '_' {
+				mut end := pos + 1
+				for end < line.len && (line[end].is_letter() || line[end] == `_`) {
+					end++
+				}
+				key := line[pos + 1..end]
+				println('GOT tr key line="${line}" key="${key}"')
+				// source.writeln('\${tr("${key}")}')
+				line_ = line.replace('%${key}', '\${tr("${key}")}')
+				// i += key.len
+			}
+			// println(source.str())
+			source.writeln(insert_template_code(fn_name, tmpl_str_start, line_))
+			// exit(0)
+		} else {
+			// by default, just copy 1:1
+			source.writeln(insert_template_code(fn_name, tmpl_str_start, line))
+		}
 	}
 
 	source.writeln(parser.tmpl_str_end)

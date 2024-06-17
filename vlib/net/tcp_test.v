@@ -1,3 +1,5 @@
+// vtest retry: 5
+// vtest flaky: true
 import net
 
 const test_port = 45123

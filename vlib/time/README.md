@@ -32,7 +32,6 @@ const time_to_test = time.Time{
 	minute: 23
 	second: 42
 	nanosecond: 123456789
-	unix: 332198622
 }
 
 println(time_to_test.format())
@@ -53,7 +52,7 @@ import time
 s := '2018-01-27 12:48:34'
 t := time.parse(s) or { panic('failing format: ${s} | err: ${err}') }
 println(t)
-println(t.unix)
+println(t.unix())
 ```
 
 V's time module also has these parse methods:

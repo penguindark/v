@@ -8,6 +8,7 @@ module time
 #include <errno.h>
 
 pub struct C.tm {
+pub mut:
 	tm_sec    int
 	tm_min    int
 	tm_hour   int
@@ -36,13 +37,14 @@ pub fn (t Time) local() Time {
 		return t
 	}
 	loc_tm := C.tm{}
-	C.localtime_r(voidptr(&t.unix), &loc_tm)
+	t_ := t.unix()
+	C.localtime_r(voidptr(&t_), &loc_tm)
 	return convert_ctime(loc_tm, t.nanosecond)
 }
 
 // in most systems, these are __quad_t, which is an i64
 pub struct C.timespec {
-mut:
+pub mut:
 	tv_sec  i64
 	tv_nsec i64
 }

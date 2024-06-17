@@ -14,6 +14,7 @@ const bs = '\\'
 
 @[minify]
 pub struct Fmt {
+pub:
 	pref &pref.Preferences = unsafe { nil }
 pub mut:
 	file               ast.File
@@ -38,8 +39,7 @@ pub mut:
 	mod2alias          map[string]string // for `import time as t`, will contain: 'time'=>'t'
 	mod2syms           map[string]string // import time { now } 'time.now'=>'now'
 	use_short_fn_args  bool
-	single_line_fields bool   // should struct fields be on a single line
-	it_name            string // the name to replace `it` with
+	single_line_fields bool // should struct fields be on a single line
 	in_lambda_depth    int
 	inside_const       bool
 	inside_unsafe      bool
@@ -56,6 +56,7 @@ pub mut:
 
 @[params]
 pub struct FmtOptions {
+pub:
 	source_text string
 }
 
@@ -99,9 +100,29 @@ pub fn fmt(file ast.File, mut table ast.Table, pref_ &pref.Preferences, is_debug
 	return res[..import_start_pos] + f.out_imports.str() + res[import_start_pos..]
 }
 
+/*
+// vfmt has a special type_to_str which calls Table.type_to_str, but does extra work.
+// Having it here and not in Table saves cpu cycles when not running the compiler in vfmt mode.
+pub fn (f &Fmt) type_to_str_using_aliases(typ ast.Type, import_aliases map[string]string) string {
+	mut s := f.table.type_to_str_using_aliases(typ, import_aliases)
+	if s.contains('Result') {
+		println('${s}')
+	}
+	if s.starts_with('x.vweb') {
+		s = s.replace_once('x.vweb', 'veb.')
+	}
+	return s
+}
+
+pub fn (f &Fmt) type_to_str(typ ast.Type) string {
+	return f.table.type_to_str(typ)
+}
+*/
+
 pub fn (mut f Fmt) process_file_imports(file &ast.File) {
 	for imp in file.imports {
 		f.mod2alias[imp.mod] = imp.alias
+		f.mod2alias[imp.mod.all_after('${file.mod.name}.')] = imp.alias
 		for sym in imp.syms {
 			f.mod2alias['${imp.mod}.${sym.name}'] = sym.name
 			f.mod2alias['${imp.mod.all_after_last('.')}.${sym.name}'] = sym.name
@@ -129,7 +150,7 @@ pub fn (mut f Fmt) write(s string) {
 }
 
 pub fn (mut f Fmt) writeln(s string) {
-	if f.indent > 0 && f.empty_line && s.len > 0 {
+	if f.indent > 0 && f.empty_line && s != '' {
 		f.write_indent()
 	}
 	f.out.writeln(s)
@@ -166,6 +187,7 @@ pub fn (mut f Fmt) wrap_long_line(penalty_idx int, add_indent bool) bool {
 
 @[params]
 pub struct RemoveNewLineConfig {
+pub:
 	imports_buffer bool // Work on f.out_imports instead of f.out
 }
 
@@ -857,6 +879,9 @@ pub fn (mut f Fmt) assign_stmt(node ast.AssignStmt) {
 			f.write(', ')
 		}
 	}
+	if node.attr.name != '' {
+		f.write(' @[${node.attr.name}]')
+	}
 	f.comments(node.end_comments, has_nl: false, same_line: true, level: .keep)
 	if !f.single_line_if {
 		f.writeln('')
@@ -920,9 +945,7 @@ pub fn (mut f Fmt) const_decl(node ast.ConstDecl) {
 		}
 	}
 	f.inside_const = true
-	defer {
-		f.inside_const = false
-	}
+	defer { f.inside_const = false }
 	if !node.is_block {
 		f.write('const ')
 	}
@@ -971,13 +994,30 @@ pub fn (mut f Fmt) const_decl(node ast.ConstDecl) {
 	f.writeln('')
 }
 
-pub fn (mut f Fmt) defer_stmt(node ast.DeferStmt) {
-	f.write('defer {')
-	if node.stmts.len > 0 || node.pos.line_nr < node.pos.last_line {
-		f.writeln('')
+fn (mut f Fmt) defer_stmt(node ast.DeferStmt) {
+	f.write('defer ')
+	if node.stmts.len == 0 {
+		f.writeln('{}')
+	} else if node.stmts.len == 1 && node.pos.line_nr == node.pos.last_line
+		&& stmt_is_single_line(node.stmts[0]) {
+		f.write('{ ')
+		// the control stmts (return/break/continue...) print a newline inside them,
+		// so, since this'll all be on one line, trim any possible whitespace
+		str := f.node_str(node.stmts[0]).trim_space()
+		// single_line := ' defer { ${str} }'
+		// if single_line.len + f.line_len <= fmt.max_len {
+		// f.write(single_line)
+		// return
+		//}
+		f.write(str)
+
+		// f.stmt(node.stmts[0])
+		f.writeln(' }')
+	} else {
+		f.writeln('{')
 		f.stmts(node.stmts)
+		f.writeln('}')
 	}
-	f.writeln('}')
 }
 
 pub fn (mut f Fmt) expr_stmt(node ast.ExprStmt) {
@@ -1075,9 +1115,7 @@ pub fn (mut f Fmt) anon_fn(node ast.AnonFn) {
 fn (mut f Fmt) fn_body(node ast.FnDecl) {
 	prev_fn_scope := f.fn_scope
 	f.fn_scope = node.scope
-	defer {
-		f.fn_scope = prev_fn_scope
-	}
+	defer { f.fn_scope = prev_fn_scope }
 	if node.language == .v || (node.is_method && node.language == .js) {
 		if !node.no_body {
 			f.write(' {')
@@ -1945,9 +1983,7 @@ pub fn (mut f Fmt) call_expr(node ast.CallExpr) {
 	if node.is_method {
 		if node.name in ['map', 'filter', 'all', 'any'] {
 			f.in_lambda_depth++
-			defer {
-				f.in_lambda_depth--
-			}
+			defer { f.in_lambda_depth-- }
 		}
 		if node.left is ast.Ident {
 			// `time.now()` without `time imported` is processed as a method call with `time` being
@@ -2224,9 +2260,7 @@ pub fn (mut f Fmt) ident(node ast.Ident) {
 		}
 	}
 	f.write_language_prefix(node.language)
-	if node.name == 'it' && f.it_name != '' && f.in_lambda_depth == 0 { // allow `it` in lambdas
-		f.write(f.it_name)
-	} else if node.kind == .blank_ident {
+	if node.kind == .blank_ident {
 		f.write('_')
 	} else {
 		mut is_local := false
@@ -2540,9 +2574,7 @@ const wsinfix_depth_max = 10
 
 fn (mut f Fmt) write_splitted_infix(conditions []string, penalties []int, ignore_paren bool, is_cond bool) {
 	f.wsinfix_depth++
-	defer {
-		f.wsinfix_depth--
-	}
+	defer { f.wsinfix_depth-- }
 	for i, cnd in conditions {
 		c := cnd.trim_space()
 		if f.line_len + c.len < fmt.break_points[penalties[i]] {
@@ -2741,9 +2773,6 @@ fn (mut f Fmt) match_branch(branch ast.MatchBranch, single_line bool) {
 pub fn (mut f Fmt) match_expr(node ast.MatchExpr) {
 	f.write('match ')
 	f.expr(node.cond)
-	if node.cond is ast.Ident {
-		f.it_name = node.cond.name
-	}
 	f.writeln(' {')
 	f.indent++
 	f.comments(node.comments)
@@ -2774,7 +2803,6 @@ pub fn (mut f Fmt) match_expr(node ast.MatchExpr) {
 	}
 	f.indent--
 	f.write('}')
-	f.it_name = ''
 }
 
 pub fn (mut f Fmt) offset_of(node ast.OffsetOf) {

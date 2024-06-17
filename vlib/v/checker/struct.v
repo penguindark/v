@@ -14,6 +14,13 @@ fn (mut c Checker) struct_decl(mut node ast.StructDecl) {
 	mut struct_sym, struct_typ_idx := c.table.find_sym_and_type_idx(node.name)
 	mut has_generic_types := false
 	if mut struct_sym.info is ast.Struct {
+		for mut symfield in struct_sym.info.fields {
+			symfield.container_typ = struct_typ_idx
+			if struct_sym.info.is_union {
+				symfield.is_part_of_union = true
+			}
+		}
+
 		if node.language == .v && !c.is_builtin_mod && !struct_sym.info.is_anon {
 			c.check_valid_pascal_case(node.name, 'struct name', node.pos)
 		}
@@ -442,7 +449,7 @@ fn (mut c Checker) struct_init(mut node ast.StructInit, is_field_zero_struct_ini
 	// but `x := T{}` is ok.
 	if !c.is_builtin_mod && !c.inside_unsafe && type_sym.language == .v
 		&& c.table.cur_concrete_types.len == 0 {
-		pos := type_sym.name.index_u8_last(`.`)
+		pos := type_sym.name.last_index_u8(`.`)
 		first_letter := type_sym.name[pos + 1]
 		if !first_letter.is_capital() && (type_sym.kind != .struct_
 			|| !(type_sym.info is ast.Struct && type_sym.info.is_anon))
@@ -698,7 +705,8 @@ or use an explicit `unsafe{ a[..] }`, if you do not want a copy of the slice.',
 				node.init_fields[i].typ = got_type
 				node.init_fields[i].expected_type = exp_type
 
-				if got_type.is_ptr() && exp_type.is_ptr() && mut init_field.expr is ast.Ident {
+				if got_type.is_ptr() && exp_type.is_ptr() && mut init_field.expr is ast.Ident
+					&& !info.is_heap {
 					c.fail_if_stack_struct_action_outside_unsafe(mut init_field.expr,
 						'assigned')
 				}
@@ -715,8 +723,8 @@ or use an explicit `unsafe{ a[..] }`, if you do not want a copy of the slice.',
 
 				// all the fields of initialized embedded struct are ignored, they are considered initialized
 				sym := c.table.sym(init_field.typ)
-				if init_field.name.len > 0 && init_field.name[0].is_capital()
-					&& sym.kind == .struct_ && sym.language == .v {
+				if init_field.name != '' && init_field.name[0].is_capital() && sym.kind == .struct_
+					&& sym.language == .v {
 					struct_fields := c.table.struct_fields(sym)
 					for struct_field in struct_fields {
 						inited_fields << struct_field.name
@@ -740,18 +748,35 @@ or use an explicit `unsafe{ a[..] }`, if you do not want a copy of the slice.',
 
 			for i, mut field in fields {
 				if field.name in inited_fields {
-					if c.mod != type_sym.mod && field.is_deprecated {
-						for init_field in node.init_fields {
-							if field.name == init_field.name {
-								c.deprecate('field', field.name, field.attrs, init_field.pos)
-								break
+					if c.mod != type_sym.mod {
+						if !field.is_pub {
+							parts := type_sym.name.split('.')
+							for init_field in node.init_fields {
+								if field.name == init_field.name {
+									mod_type := if parts.len > 1 {
+										parts#[-2..].join('.')
+									} else {
+										parts.last()
+									}
+									c.error('cannot access private field `${field.name}` on `${mod_type}`',
+										init_field.pos)
+									break
+								}
+							}
+						}
+						if field.is_deprecated {
+							for init_field in node.init_fields {
+								if field.name == init_field.name {
+									c.deprecate('field', field.name, field.attrs, init_field.pos)
+									break
+								}
 							}
 						}
 					}
 					continue
 				}
 				sym := c.table.sym(field.typ)
-				if field.name.len > 0 && field.name[0].is_capital() && sym.info is ast.Struct {
+				if field.name != '' && field.name[0].is_capital() && sym.info is ast.Struct {
 					// struct embeds
 					continue
 				}
@@ -822,12 +847,22 @@ or use an explicit `unsafe{ a[..] }`, if you do not want a copy of the slice.',
 						node.pos)
 				}
 				if !node.has_update_expr && !field.has_default_expr && !field.typ.is_ptr()
-					&& !field.typ.has_flag(.option) && c.table.final_sym(field.typ).kind == .struct_ {
-					mut zero_struct_init := ast.StructInit{
-						pos: node.pos
-						typ: field.typ
+					&& !field.typ.has_flag(.option) {
+					field_final_sym := c.table.final_sym(field.typ)
+					if field_final_sym.kind == .struct_ {
+						mut zero_struct_init := ast.StructInit{
+							pos: node.pos
+							typ: field.typ
+						}
+						if field.is_part_of_union {
+							if field.name in inited_fields {
+								// fields that are part of an union, should only be checked, when they are explicitly initialised
+								c.struct_init(mut zero_struct_init, true, mut inited_fields)
+							}
+						} else {
+							c.struct_init(mut zero_struct_init, true, mut inited_fields)
+						}
 					}
-					c.struct_init(mut zero_struct_init, true, mut inited_fields)
 				}
 			}
 			for embed in info.embeds {
@@ -911,7 +946,7 @@ fn (mut c Checker) check_ref_fields_initialized(struct_sym &ast.TypeSymbol, mut 
 			if sym.language == .c {
 				continue
 			}
-			if field.name.len > 0 && field.name[0].is_capital() && sym.language == .v {
+			if field.name != '' && field.name[0].is_capital() && sym.language == .v {
 				// an embedded struct field
 				continue
 			}
@@ -953,7 +988,7 @@ fn (mut c Checker) check_ref_fields_initialized_note(struct_sym &ast.TypeSymbol,
 			if sym.language == .c {
 				continue
 			}
-			if field.name.len > 0 && field.name[0].is_capital() && sym.language == .v {
+			if field.name != '' && field.name[0].is_capital() && sym.language == .v {
 				// an embedded struct field
 				continue
 			}

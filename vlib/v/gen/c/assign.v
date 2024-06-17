@@ -71,8 +71,12 @@ fn (mut g Gen) expr_opt_with_cast(expr ast.Expr, expr_typ ast.Type, ret_typ ast.
 		styp := g.base_type(ret_typ)
 		decl_styp := g.typ(ret_typ).replace('*', '_ptr')
 		g.writeln('${decl_styp} ${past.tmp_var};')
-		g.write('_option_ok(&(${styp}[]) {')
-
+		is_none := expr is ast.CastExpr && expr.expr is ast.None
+		if is_none {
+			g.write('_option_none(&(${styp}[]) {')
+		} else {
+			g.write('_option_ok(&(${styp}[]) {')
+		}
 		if expr is ast.CastExpr && expr_typ.has_flag(.option) {
 			g.write('*((${g.base_type(expr_typ)}*)')
 			g.expr(expr)
@@ -475,6 +479,10 @@ fn (mut g Gen) assign_stmt(node_ ast.AssignStmt) {
 						g.write('string__plus(')
 					}
 				} else {
+					// allow literal values to auto deref var (e.g.`for mut v in values { v += 1.0 }`)
+					if left.is_auto_deref_var() {
+						g.write('*')
+					}
 					// str += str2 => `str = string__plus(str, str2)`
 					g.expr(left)
 					g.write(' = string__plus(')
@@ -526,6 +534,29 @@ fn (mut g Gen) assign_stmt(node_ ast.AssignStmt) {
 					op_expected_right = method.params[1].typ
 					op_overloaded = true
 				}
+			}
+			final_left_sym := g.table.final_sym(g.unwrap_generic(var_type))
+			final_right_sym := g.table.final_sym(unwrapped_val_type)
+			if final_left_sym.kind == .bool && final_right_sym.kind == .bool
+				&& node.op in [.boolean_or_assign, .boolean_and_assign] {
+				extracted_op := match node.op {
+					.boolean_or_assign {
+						'||'
+					}
+					.boolean_and_assign {
+						'&&'
+					}
+					else {
+						'unknown op'
+					}
+				}
+				g.expr(left)
+				g.write(' = ')
+				g.expr(left)
+				g.write(' ${extracted_op} ')
+				g.expr(val)
+				g.writeln(';')
+				return
 			}
 			if right_sym.info is ast.FnType && is_decl {
 				if is_inside_ternary {

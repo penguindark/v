@@ -116,6 +116,11 @@ fn (mut p Parser) parse_map_type() ast.Type {
 	}
 	p.next()
 	if p.tok.kind != .lsbr {
+		if p.inside_struct_field_decl {
+			p.error_with_pos('cannot use the map type without key and value definition',
+				p.prev_tok.pos())
+			return 0
+		}
 		return ast.map_type
 	}
 	p.check(.lsbr)
@@ -320,7 +325,7 @@ fn (mut p Parser) parse_fn_type(name string, generic_types []ast.Type) ast.Type 
 		is_method: false
 		attrs: p.attrs
 	}
-	if has_generic && generic_types.len == 0 && name.len > 0 {
+	if has_generic && generic_types.len == 0 && name != '' {
 		p.error_with_pos('`${name}` type is generic fntype, must specify the generic type names, e.g. ${name}[T]',
 			fn_type_pos)
 	}
@@ -460,9 +465,22 @@ fn (mut p Parser) parse_type() ast.Type {
 	if p.tok.kind == .question {
 		p.next()
 		is_option = true
+		if p.tok.kind == .not {
+			p.next()
+			is_result = true
+		}
 	} else if p.tok.kind == .not {
 		p.next()
 		is_result = true
+		if p.tok.kind == .question {
+			p.next()
+			is_option = true
+		}
+	}
+
+	if is_option && is_result {
+		p.error_with_pos('the type must be Option or Result', p.prev_tok.pos())
+		return 0
 	}
 
 	if is_option || is_result {
@@ -537,6 +555,11 @@ fn (mut p Parser) parse_type() ast.Type {
 			return 0
 		}
 		sym := p.table.sym(typ)
+		if p.inside_fn_concrete_type && sym.info is ast.Struct {
+			if !typ.has_flag(.generic) && sym.info.generic_types.len > 0 {
+				p.error_with_pos('missing concrete type on generic type', option_pos.extend(p.prev_tok.pos()))
+			}
+		}
 		if is_option && sym.info is ast.SumType && sym.info.is_anon {
 			p.error_with_pos('an inline sum type cannot be an Option', option_pos.extend(p.prev_tok.pos()))
 		}
@@ -614,13 +637,13 @@ fn (mut p Parser) parse_any_type(language ast.Language, is_ptr bool, check_dot b
 		if mod in p.imports {
 			p.register_used_import(mod)
 			mod = p.imports[mod]
+			if p.tok.lit.len > 0 && !p.tok.lit[0].is_capital() {
+				p.error('imported types must start with a capital letter')
+				return 0
+			}
 		}
 		// prefix with full module
 		name = '${mod}.${p.tok.lit}'
-		if p.tok.lit.len > 0 && !p.tok.lit[0].is_capital() {
-			p.error('imported types must start with a capital letter')
-			return 0
-		}
 	} else if p.expr_mod != '' && !p.inside_generic_params {
 		// p.expr_mod is from the struct and not from the generic parameter
 		name = p.expr_mod + '.' + name

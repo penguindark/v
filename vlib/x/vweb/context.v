@@ -42,8 +42,8 @@ pub:
 	// time.ticks() from start of vweb connection handle.
 	// You can use it to determine how much time is spent on your request.
 	page_gen_start i64
-	req            http.Request
 pub mut:
+	req               http.Request
 	custom_mime_types map[string]string
 	// TCP connection to client. Only for advanced usage!
 	conn &net.TcpConn = unsafe { nil }
@@ -100,7 +100,7 @@ pub fn (mut ctx Context) send_response_to_client(mimetype string, response strin
 	// set Content-Type and Content-Length headers
 	mut custom_mimetype := if ctx.content_type.len == 0 { mimetype } else { ctx.content_type }
 	ctx.res.header.set(.content_type, custom_mimetype)
-	if ctx.res.body.len > 0 {
+	if ctx.res.body != '' {
 		ctx.res.header.set(.content_length, ctx.res.body.len.str())
 	}
 	// send vweb's closing headers
@@ -227,6 +227,7 @@ pub fn (mut ctx Context) server_error(msg string) Result {
 
 @[params]
 pub struct RedirectParams {
+pub:
 	typ RedirectType
 }
 

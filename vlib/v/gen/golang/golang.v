@@ -92,7 +92,7 @@ pub fn (mut f Gen) write(s string) {
 }
 
 pub fn (mut f Gen) writeln(s string) {
-	if f.indent > 0 && f.empty_line && s.len > 0 {
+	if f.indent > 0 && f.empty_line && s != '' {
 		f.write_indent()
 	}
 	f.out.writeln(s)
@@ -126,6 +126,7 @@ pub fn (mut f Gen) wrap_long_line(penalty_idx int, add_indent bool) bool {
 
 @[params]
 pub struct RemoveNewLineConfig {
+pub:
 	imports_buffer bool // Work on f.out_imports instead of f.out
 }
 

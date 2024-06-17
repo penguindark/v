@@ -312,7 +312,7 @@ pub fn (t Type) nr_muls() int {
 pub fn (t Type) is_ptr() bool {
 	// any normal pointer, i.e. &Type, &&Type etc;
 	// Note: voidptr, charptr and byteptr are NOT included!
-	return (int(t) >> 16) & 0xff > 0
+	return (int(t) >> 16) & 0xff != 0
 }
 
 // is_pointer returns true if `typ` is any of the builtin pointer types (voidptr, byteptr, charptr)
@@ -331,7 +331,7 @@ pub fn (typ Type) is_voidptr() bool {
 // is_any_kind_of_pointer returns true if t is any type of pointer
 @[inline]
 pub fn (t Type) is_any_kind_of_pointer() bool {
-	return (int(t) >> 16) & 0xff > 0 || (u16(t) & 0xffff) in ast.pointer_type_idxs
+	return (int(t) >> 16) & 0xff != 0 || (u16(t) & 0xffff) in ast.pointer_type_idxs
 }
 
 // set nr_muls on `t` and return it
@@ -398,7 +398,7 @@ pub fn (t Type) clear_option_and_result() Type {
 // return true if `flag` is set on `t`
 @[inline]
 pub fn (t Type) has_flag(flag TypeFlag) bool {
-	return int(t) & (1 << (int(flag) + 24)) > 0
+	return int(t) & (1 << (int(flag) + 24)) != 0
 }
 
 @[inline]
@@ -433,6 +433,7 @@ fn (ts TypeSymbol) dbg_common(mut res []string) {
 	res << 'language: ${ts.language}'
 }
 
+// str returns a string representation of the type.
 pub fn (t Type) str() string {
 	return 'ast.Type(0x${t.hex()} = ${u32(t)})'
 }
@@ -717,7 +718,7 @@ pub fn mktyp(typ Type) Type {
 	}
 }
 
-// returns TypeSymbol kind only if there are no type modifiers
+// type_kind returns the kind of the given type symbol.
 pub fn (t &Table) type_kind(typ Type) Kind {
 	if typ.nr_muls() > 0 || typ.has_option_or_result() {
 		return Kind.placeholder
@@ -1358,7 +1359,7 @@ pub fn (t &Table) type_to_str_using_aliases(typ Type, import_aliases map[string]
 			} else {
 				if res.starts_with('fn (') {
 					// fn foo ()
-					has_names := info.func.params.any(it.name.len > 0)
+					has_names := info.func.params.any(it.name != '')
 					res = t.fn_signature_using_aliases(info.func, import_aliases,
 						type_only: !has_names
 					)
@@ -1511,6 +1512,7 @@ fn (t Table) shorten_user_defined_typenames(original_name string, import_aliases
 
 @[minify]
 pub struct FnSignatureOpts {
+pub:
 	skip_receiver bool
 	type_only     bool
 }

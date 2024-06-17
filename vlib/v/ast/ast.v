@@ -341,6 +341,8 @@ pub:
 	is_deprecated    bool
 pub mut:
 	is_recursive     bool
+	is_part_of_union bool
+	container_typ    Type
 	default_expr     Expr
 	default_expr_typ Type
 	name             string
@@ -986,7 +988,7 @@ pub type IdentInfo = IdentFn | IdentVar
 
 pub enum IdentKind {
 	unresolved
-	blank_ident
+	blank_ident // discard identifier, `_` in `_ := 1`
 	variable
 	constant
 	global
@@ -1310,6 +1312,7 @@ pub mut:
 	is_volatile   bool // for disabling variable access optimisations (needed for hardware drivers)
 	is_simple     bool // `x+=2` in `for x:=1; ; x+=2`
 	has_cross_var bool
+	attr          Attr
 }
 
 // `expr as Ident`

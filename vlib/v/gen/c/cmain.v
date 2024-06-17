@@ -2,6 +2,9 @@ module c
 
 import v.util
 import v.ast
+import strings
+
+pub const reset_dbg_line = '#line 999999999'
 
 pub fn (mut g Gen) gen_c_main() {
 	if !g.has_main {
@@ -38,16 +41,54 @@ fn (mut g Gen) gen_vlines_reset() {
 		// At this point, the v files are transpiled.
 		// The rest is auto generated code, which will not have
 		// different .v source file/line numbers.
-		//
-		// TODO: calculate the proper line here, based on
-		// the actual C lines in all the buffers
-		lines_so_far := 1000000
 		g.vlines_path = util.vlines_escape_path(g.pref.out_name_c, g.pref.ccompiler)
 		g.writeln('')
-		g.writeln('\n// Reset the file/line numbers')
-		g.writeln('\n#line ${lines_so_far} "${g.vlines_path}"')
+		g.writeln('// Reset the C file/line numbers')
+		g.writeln('${c.reset_dbg_line} "${g.vlines_path}"')
 		g.writeln('')
 	}
+}
+
+pub fn fix_reset_dbg_line(src string, out_file string) string {
+	util.timing_start(@FN)
+	defer {
+		util.timing_measure(@FN)
+	}
+	// Note: using src.index() + a line counting loop + src.replace() here is slower,
+	// since it has to iterate over pretty much the entire src string several times.
+	// The loop below, does it just once, combining counting the lines, and finding the reset line:
+	mut dbg_reset_line_idx := 0
+	mut lines := 2
+	for idx, ob in src {
+		if ob == `\n` {
+			lines++
+			if unsafe { vmemcmp(src.str + idx + 1, c.reset_dbg_line.str, c.reset_dbg_line.len) } == 0 {
+				dbg_reset_line_idx = idx + 1
+				break
+			}
+		}
+	}
+	// find the position of the "..\..\..\src.tmp.c":
+	mut first_quote_idx := 0
+	for idx := dbg_reset_line_idx; idx < src.len; idx++ {
+		if unsafe { src.str[idx] } == `"` {
+			first_quote_idx = idx
+			break
+		}
+	}
+	// replace the reset line with the fixed line counter, keeping everything
+	// before and after it unchanged:
+	mut sb := strings.new_builder(src.len)
+	unsafe {
+		sb.write_ptr(src.str, dbg_reset_line_idx)
+		sb.write_string('#line ')
+		sb.write_decimal(lines)
+		sb.write_ptr(src.str + first_quote_idx - 1, src.len - first_quote_idx)
+	}
+	$if trace_reset_dbg_line ? {
+		eprintln('> reset_dbg_line: ${out_file}:${lines} | first_quote_idx: ${first_quote_idx} | src.len: ${src.len} | sb.len: ${sb.len} | sb.cap: ${sb.cap}')
+	}
+	return sb.str()
 }
 
 fn (mut g Gen) gen_c_main_function_only_header() {
@@ -264,7 +305,7 @@ pub fn (mut g Gen) gen_c_main_for_tests() {
 	mut all_tfuncs := g.get_all_test_function_names()
 	all_tfuncs = g.filter_only_matching_fn_names(all_tfuncs)
 	g.writeln('\tstring v_test_file = ${ctoslit(g.pref.path)};')
-	if g.pref.is_stats {
+	if g.pref.show_asserts {
 		g.writeln('\tmain__BenchedTests bt = main__start_testing(${all_tfuncs.len}, v_test_file);')
 	}
 	g.writeln('')
@@ -287,7 +328,7 @@ pub fn (mut g Gen) gen_c_main_for_tests() {
 		g.writeln('\t_vtrunner._method_fn_start(_vtobj);')
 		g.writeln('\tif (!setjmp(g_jump_buffer)) {')
 		//
-		if g.pref.is_stats {
+		if g.pref.show_asserts {
 			g.writeln('\t\tmain__BenchedTests_testing_step_start(&bt, tcname_${tnumber});')
 		}
 		g.writeln('\t\t${tcname}();')
@@ -298,12 +339,12 @@ pub fn (mut g Gen) gen_c_main_for_tests() {
 		g.writeln('\t\t_vtrunner._method_fn_fail(_vtobj);')
 		//
 		g.writeln('\t}')
-		if g.pref.is_stats {
+		if g.pref.show_asserts {
 			g.writeln('\tmain__BenchedTests_testing_step_end(&bt);')
 		}
 		g.writeln('')
 	}
-	if g.pref.is_stats {
+	if g.pref.show_asserts {
 		g.writeln('\tmain__BenchedTests_end_testing(&bt);')
 	}
 	g.writeln('')

@@ -151,7 +151,9 @@ fn (mut p Parser) for_stmt() ast.Stmt {
 		}
 		comments << p.eat_comments()
 		// arr_expr
+		p.inside_for_expr = true
 		cond := p.expr(0)
+		p.inside_for_expr = false
 		// 0 .. 10
 		// start := p.tok.lit.int()
 		// TODO: use RangeExpr
@@ -171,7 +173,7 @@ fn (mut p Parser) for_stmt() ast.Stmt {
 				is_tmp: true
 				is_stack_obj: true
 			})
-			if key_var_name.len > 0 {
+			if key_var_name != '' {
 				return p.error_with_pos('cannot declare index variable with range `for`',
 					key_var_pos)
 			}

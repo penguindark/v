@@ -85,6 +85,7 @@ pub mut:
 	build_tools   bool // builds only executables in cmd/tools; used by `v build-tools'
 	silent_mode   bool
 	show_stats    bool
+	show_asserts  bool
 	progress_mode bool
 	root_relative bool // used by CI runs, so that the output is stable everywhere
 	nmessages     chan LogMessage // many publishers, single consumer/printer
@@ -228,7 +229,6 @@ pub fn new_test_session(_vargs string, will_compile bool) TestSession {
 			skip_files << 'vlib/v/tests/project_with_cpp_code/compiling_cpp_files_with_a_cplusplus_compiler_test.c.v'
 		}
 		$if solaris {
-			skip_files << 'examples/gg/gg2.v'
 			skip_files << 'examples/pico/pico.v'
 			skip_files << 'examples/pico/raw_callback.v'
 			skip_files << 'examples/sokol/fonts.v'
@@ -265,9 +265,12 @@ pub fn new_test_session(_vargs string, will_compile bool) TestSession {
 			}
 		}
 		if testing.runner_os != 'Linux' || testing.github_job != 'tcc' {
-			skip_files << 'examples/c_interop_wkhtmltopdf.v' // needs installation of wkhtmltopdf from https://github.com/wkhtmltopdf/packaging/releases
+			if !os.exists('/usr/local/include/wkhtmltox/pdf.h') {
+				skip_files << 'examples/c_interop_wkhtmltopdf.v' // needs installation of wkhtmltopdf from https://github.com/wkhtmltopdf/packaging/releases
+			}
 			skip_files << 'vlib/vweb/vweb_app_test.v' // imports the `sqlite` module, which in turn includes sqlite3.h
 			skip_files << 'vlib/x/vweb/tests/vweb_app_test.v' // imports the `sqlite` module, which in turn includes sqlite3.h
+			skip_files << 'vlib/veb/tests/veb_app_test.v' // imports the `sqlite` module, which in turn includes sqlite3.h
 		}
 		$if !macos {
 			skip_files << 'examples/macos_tray/tray.v'
@@ -278,6 +281,8 @@ pub fn new_test_session(_vargs string, will_compile bool) TestSession {
 		}
 		if testing.github_job == 'tests-sanitize-memory-clang' {
 			skip_files << 'vlib/net/openssl/openssl_compiles_test.c.v'
+			// Fails compilation with: `/usr/bin/ld: /lib/x86_64-linux-gnu/libpthread.so.0: error adding symbols: DSO missing from command line`
+			skip_files << 'examples/sokol/sounds/simple_sin_tones.v'
 		}
 		if testing.github_job != 'misc-tooling' {
 			// These examples need .h files that are produced from the supplied .glsl files,
@@ -290,10 +295,6 @@ pub fn new_test_session(_vargs string, will_compile bool) TestSession {
 			skip_files << 'examples/sokol/08_sdf/sdf.v'
 			// Skip obj_viewer code in the CI
 			skip_files << 'examples/sokol/06_obj_viewer/show_obj.v'
-			// skip the audio examples too on most CI jobs
-			skip_files << 'examples/sokol/sounds/melody.v'
-			skip_files << 'examples/sokol/sounds/wav_player.v'
-			skip_files << 'examples/sokol/sounds/simple_sin_tones.v'
 		}
 		// requires special compilation flags: `-b wasm -os browser`, skip it for now:
 		skip_files << 'examples/wasm/mandelbrot/mandelbrot.wasm.v'
@@ -303,7 +304,7 @@ pub fn new_test_session(_vargs string, will_compile bool) TestSession {
 	vargs := _vargs.replace('-progress', '')
 	vexe := pref.vexe_path()
 	vroot := os.dir(vexe)
-	hash := '${sync.thread_id().hex()}_${time.sys_mono_now()}'
+	hash := '${sync.thread_id().hex()}_${rand.ulid()}'
 	new_vtmp_dir := setup_new_vtmp_folder(hash)
 	if term.can_show_color_on_stderr() {
 		os.setenv('VCOLORS', 'always', true)
@@ -314,6 +315,7 @@ pub fn new_test_session(_vargs string, will_compile bool) TestSession {
 		skip_files: skip_files
 		fail_fast: testing.fail_fast
 		show_stats: '-stats' in vargs.split(' ')
+		show_asserts: '-show-asserts' in vargs.split(' ')
 		vargs: vargs
 		vtmp_dir: new_vtmp_dir
 		hash: hash
@@ -504,7 +506,8 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 	// where an executable is not writable, if it is running).
 	// Note, that the common session temporary folder ts.vtmp_dir,
 	// will be removed after all tests are done.
-	mut test_folder_path := os.join_path(ts.vtmp_dir, rand.ulid())
+	test_id := '${idx}_${thread_id}'
+	mut test_folder_path := os.join_path(ts.vtmp_dir, test_id)
 	if ts.build_tools {
 		// `v build-tools`, produce all executables in the same session folder, so that they can be copied later:
 		test_folder_path = ts.vtmp_dir
@@ -535,7 +538,11 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		}
 	}
 
-	cmd := '${os.quoted_path(ts.vexe)} -skip-running ${cmd_options.join(' ')} ${os.quoted_path(file)}'
+	mut skip_running := '-skip-running'
+	if ts.show_stats {
+		skip_running = ''
+	}
+	cmd := '${os.quoted_path(ts.vexe)} ${skip_running} ${cmd_options.join(' ')} ${os.quoted_path(file)}'
 	run_cmd := if run_js {
 		'node ${os.quoted_path(generated_binary_fpath)}'
 	} else {
@@ -557,8 +564,6 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 	mut compile_cmd_duration := time.Duration(0)
 	mut cmd_duration := time.Duration(0)
 	if ts.show_stats {
-		ts.reporter.divider()
-
 		ts.append_message(.cmd_begin, cmd, mtc)
 		d_cmd := time.new_stopwatch()
 
@@ -655,6 +660,9 @@ fn worker_trunner(mut p pool.PoolProcessor, idx int, thread_id int) voidptr {
 		mut r := os.execute(run_cmd)
 		cmd_duration = d_cmd.elapsed()
 		ts.append_message_with_duration(.cmd_end, r.output, cmd_duration, mtc)
+		if ts.show_asserts && r.exit_code == 0 {
+			println(r.output.split_into_lines().filter(it.contains(' assert')).join('\n'))
+		}
 		if r.exit_code != 0 {
 			mut details := get_test_details(file)
 			mut trimmed_output := r.output.trim_space()

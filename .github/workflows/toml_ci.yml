@@ -2,25 +2,32 @@ name: toml CI
 
 on:
   push:
-    paths-ignore:
-      - "**.md"
+    paths:
+      - 'vlib/**'
+      - '**/toml_ci.yml'
+      - '!**.md'
   pull_request:
-    paths-ignore:
-      - "**.md"
+    paths:
+      - 'vlib/**'
+      - '**/toml_ci.yml'
+      - '!**.md'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/master' && github.sha || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   toml-module-pass-external-test-suites:
     runs-on: ubuntu-latest
-    if: github.event_name != 'push' || github.event.ref == 'refs/heads/master' || github.event.repository.full_name != 'vlang/v'
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Build V
+        run: make -j4 && ./v symlink
       - name: Install dependencies
         run: |
-          .github/workflows/retry.sh sudo apt-get update
-          .github/workflows/retry.sh sudo apt-get install --quiet -y jq libgc-dev
-      - name: Build V
-        run: make
+          v retry -- sudo apt update
+          v retry -- sudo apt install --quiet -y jq libgc-dev
 
       - name: Show JQ Version
         run: jq --version

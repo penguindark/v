@@ -142,6 +142,7 @@ pub const mime_types = {
 	'.3gp':    'video/3gpp'
 	'.3g2':    'video/3gpp2'
 	'.7z':     'application/x-7z-compressed'
+	'.m3u8':   'application/vnd.apple.mpegurl'
 }
 pub const max_http_post_size = 1024 * 1024
 pub const default_port = 8080
@@ -153,11 +154,10 @@ mut:
 	content_type string = 'text/plain'
 	status       string = '200 OK'
 	ctx          context.Context = context.EmptyContext{}
-pub:
+pub mut:
 	// HTTP Request
 	req http.Request
 	// TODO: Response
-pub mut:
 	done bool
 	// time.ticks() from start of vweb connection handle.
 	// You can use it to determine how much time is spent on your request.
@@ -321,6 +321,7 @@ pub fn (mut ctx Context) server_error(ecode int) Result {
 
 @[params]
 pub struct RedirectParams {
+pub:
 	status_code int = 302
 }
 
@@ -523,6 +524,7 @@ pub fn run[T](global_app &T, port int) {
 
 @[params]
 pub struct RunParams {
+pub:
 	family               net.AddrFamily = .ip6 // use `family: .ip, host: 'localhost'` when you want it to bind only to 127.0.0.1
 	host                 string
 	port                 int  = 8080
@@ -1057,7 +1059,7 @@ pub fn (mut ctx Context) mount_static_folder_at(directory_path string, mount_pat
 // and you have a file /var/share/myassets/main.css .
 // => That file will be available at URL: http://localhost/assets/main.css .
 pub fn (mut ctx Context) host_mount_static_folder_at(host string, directory_path string, mount_path string) bool {
-	if ctx.done || mount_path.len < 1 || mount_path[0] != `/` || !os.exists(directory_path) {
+	if ctx.done || mount_path == '' || mount_path[0] != `/` || !os.exists(directory_path) {
 		return false
 	}
 	dir_path := directory_path.trim_right('/')
@@ -1215,6 +1217,7 @@ fn (mut w Worker[T]) process_incoming_requests() {
 
 @[params]
 pub struct PoolParams[T] {
+pub:
 	handler    fn () T = unsafe { nil } @[required]
 	nr_workers int = runtime.nr_jobs()
 }

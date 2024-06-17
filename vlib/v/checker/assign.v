@@ -8,6 +8,11 @@ import v.ast
 fn (mut c Checker) assign_stmt(mut node ast.AssignStmt) {
 	prev_inside_assign := c.inside_assign
 	c.inside_assign = true
+	if node.attr.name != '' {
+		c.assign_stmt_attr = node.attr.name
+	} else {
+		c.assign_stmt_attr = ''
+	}
 	c.expected_type = ast.none_type // TODO: a hack to make `x := if ... work`
 	defer {
 		c.expected_type = ast.void_type
@@ -211,12 +216,8 @@ fn (mut c Checker) assign_stmt(mut node ast.AssignStmt) {
 			}
 			if left_type == ast.int_type {
 				if mut right is ast.IntegerLiteral {
-					mut is_large := right.val.len > 13
-					if !is_large && right.val.len > 8 {
-						val := right.val.i64()
-						is_large = val > int_max || val < int_min
-					}
-					if is_large {
+					val := right.val.i64()
+					if overflows_i32(val) {
 						c.error('overflow in implicit type `int`, use explicit type casting instead',
 							right.pos)
 					}
@@ -498,26 +499,14 @@ fn (mut c Checker) assign_stmt(mut node ast.AssignStmt) {
 		left_sym := c.table.sym(left_type_unwrapped)
 		right_sym := c.table.sym(right_type_unwrapped)
 
-		old_assign_error_condition := left_sym.kind == .array && !c.inside_unsafe
-			&& node.op in [.assign, .decl_assign] && right_sym.kind == .array && left is ast.Ident
-			&& !left.is_blank_ident() && right is ast.Ident
-		if old_assign_error_condition {
-			// Do not allow `a = b`, only `a = b.clone()`
-			c.error('use `array2 ${node.op.str()} array1.clone()` instead of `array2 ${node.op.str()} array1` (or use `unsafe`)',
-				node.pos)
-		}
-		// Do not allow `a = val.array_field`, only `a = val.array_field.clone()`
-		// TODO: turn this warning into an error after 2022/09/24
-		// TODO: and remove the less strict check from above.
 		if left_sym.kind == .array && !c.inside_unsafe && right_sym.kind == .array
 			&& left is ast.Ident && !left.is_blank_ident() && right in [ast.Ident, ast.SelectorExpr]
 			&& ((node.op == .decl_assign && left.is_mut) || node.op == .assign) {
-			// no point to show the notice, if the old error was already shown:
-			if !old_assign_error_condition {
-				mut_str := if node.op == .decl_assign { 'mut ' } else { '' }
-				c.warn('use `${mut_str}array2 ${node.op.str()} array1.clone()` instead of `${mut_str}array2 ${node.op.str()} array1` (or use `unsafe`)',
-					node.pos)
-			}
+			// Do not allow direct array assignments outside unsafe.
+			// E.g.: `a2 = a1` wants `a2 = a1.clone()`, `a = val.arr_field` wants `a = val.arr_field.clone()`
+			mut_str := if node.op == .decl_assign { 'mut ' } else { '' }
+			c.error('use `${mut_str}array2 ${node.op.str()} array1.clone()` instead of `${mut_str}array2 ${node.op.str()} array1` (or use `unsafe`)',
+				node.pos)
 		}
 		if left_sym.kind == .array && right_sym.kind == .array {
 			right_info := right_sym.info as ast.Array
@@ -638,7 +627,13 @@ or use an explicit `unsafe{ a[..] }`, if you do not want a copy of the slice.',
 		match node.op {
 			.assign {} // No need to do single side check for =. But here put it first for speed.
 			.plus_assign, .minus_assign {
-				if left_type == ast.string_type {
+				// allow literal values to auto deref var (e.g.`for mut v in values { v += 1.0 }`)
+				left_deref := if left.is_auto_deref_var() {
+					left_type.deref()
+				} else {
+					left_type
+				}
+				if left_deref == ast.string_type {
 					if node.op != .plus_assign {
 						c.error('operator `${node.op}` not defined on left operand type `${left_sym.name}`',
 							left.pos())
@@ -674,6 +669,15 @@ or use an explicit `unsafe{ a[..] }`, if you do not want a copy of the slice.',
 					c.error('operator ${node.op.str()} not defined on left operand type `${left_sym.name}`',
 						left.pos())
 				} else if !right_sym.is_int() && !c.table.final_sym(right_type_unwrapped).is_int() {
+					c.error('operator ${node.op.str()} not defined on right operand type `${right_sym.name}`',
+						right.pos())
+				}
+			}
+			.boolean_and_assign, .boolean_or_assign {
+				if c.table.final_sym(left_type_unwrapped).kind != .bool {
+					c.error('operator ${node.op.str()} not defined on left operand type `${left_sym.name}`',
+						left.pos())
+				} else if c.table.final_sym(right_type_unwrapped).kind != .bool {
 					c.error('operator ${node.op.str()} not defined on right operand type `${right_sym.name}`',
 						right.pos())
 				}

@@ -106,7 +106,7 @@ fn (mut g Gen) assert_subexpression_to_ctemp(expr ast.Expr, expr_type ast.Type) 
 }
 
 fn (mut g Gen) gen_assert_postfailure_mode(node ast.AssertStmt) {
-	g.write_v_source_line_info(node.pos)
+	g.write_v_source_line_info_stmt(node)
 	if g.pref.assert_failure_mode == .continues
 		|| g.fn_decl.attrs.any(it.name == 'assert_continues') {
 		return
@@ -182,7 +182,14 @@ fn (mut g Gen) gen_assert_single_expr(expr ast.Expr, typ ast.Type) {
 	// eprintln('> gen_assert_single_expr typ: $typ | expr: $expr | typeof(expr): ${typeof(expr)}')
 	unknown_value := '*unknown value*'
 	match expr {
-		ast.CastExpr, ast.IfExpr, ast.MatchExpr {
+		ast.CastExpr {
+			if typ.is_float() || g.table.final_sym(typ).is_float() {
+				g.gen_expr_to_string(expr.expr, typ)
+			} else {
+				g.write(ctoslit(unknown_value))
+			}
+		}
+		ast.IfExpr, ast.MatchExpr {
 			g.write(ctoslit(unknown_value))
 		}
 		ast.IndexExpr {
